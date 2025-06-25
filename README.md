@@ -1,1 +1,1 @@
-# stock-recommender
+# stock-recommender-app
