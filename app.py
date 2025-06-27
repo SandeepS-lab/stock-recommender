@@ -7,6 +7,14 @@ from io import BytesIO
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
+import sys
+import locale
+
+# Set safe locale encoding
+locale.setlocale(locale.LC_ALL, '')
+if sys.platform == "win32":
+    import os
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # ----------------------------
 # Risk Profiling Logic
@@ -32,6 +40,12 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 # Live Stock Data (YFinance)
 # ----------------------------
+def safe_str(val):
+    try:
+        return str(val).encode('utf-8', 'ignore').decode('utf-8')
+    except:
+        return str(val)
+
 def get_live_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -52,7 +66,7 @@ def get_live_data(symbol):
             'PE Ratio': 0,
             'Dividend Yield': 0,
             'Beta': 0,
-            'Error': str(e).encode('utf-8', 'ignore').decode('utf-8')
+            'Error': safe_str(e)
         }
 
 # ----------------------------
@@ -65,99 +79,4 @@ stock_mapping = {
 }
 
 stock_risk = {
-    'TCS': 'Conservative', 'HDFC Bank': 'Moderate', 'Infosys': 'Moderate',
-    'Adani Enterprises': 'Aggressive', 'Zomato': 'Aggressive',
-    'Reliance Industries': 'Moderate', 'Bajaj Finance': 'Moderate', 'IRCTC': 'Aggressive'
-}
-
-# ----------------------------
-# Streamlit UI
-# ----------------------------
-
-st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
-st.title("AI-Based Stock Recommender with Live Data")
-
-def format_currency(val):
-    return f"Rs. {val:,.0f}"
-
-st.header("Enter Client Profile")
-age = st.slider("Client Age", 18, 75, 35)
-income = st.number_input("Monthly Income (Rs.)", min_value=0, value=50000, step=5000)
-investment_amount = st.number_input("Total Investment Amount (Rs.)", min_value=1000, value=100000, step=10000)
-dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
-qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
-duration = st.slider("Investment Duration (Years)", 1, 30, 5)
-investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-live_data_toggle = st.checkbox("Use Live Data from YFinance")
-
-if st.button("Generate Recommendation"):
-    risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
-    st.success(f"Risk Profile: {risk_profile}")
-    st.info(f"Investment Allocation for {format_currency(investment_amount)}")
-
-    filtered_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
-    if len(filtered_stocks) < 5:
-        all_stocks = list(stock_risk.keys())
-        for s in all_stocks:
-            if s not in filtered_stocks:
-                filtered_stocks.append(s)
-            if len(filtered_stocks) == 5:
-                break
-
-    yf_symbols = [stock_mapping[s] for s in filtered_stocks]
-    raw_data = yf.download(yf_symbols, period="1y", interval="1d")
-    prices = raw_data['Adj Close'] if 'Adj Close' in raw_data else raw_data['Close']
-    prices = prices.dropna()
-    mu = mean_historical_return(prices)
-    S = CovarianceShrinkage(prices).ledoit_wolf()
-    ef = EfficientFrontier(mu, S)
-    optimized_weights = ef.max_sharpe()
-    cleaned_weights = ef.clean_weights()
-
-    weights = np.array([cleaned_weights.get(stock_mapping[s], 0) for s in filtered_stocks])
-    investment_per_stock = (weights * investment_amount)
-
-    portfolio = pd.DataFrame({
-        'Stock': filtered_stocks,
-        'Weight %': [round(w * 100, 2) for w in weights],
-        'Investment Amount (Rs.)': [round(inv) for inv in investment_per_stock]
-    })
-
-    if live_data_toggle:
-        extra_data = []
-        for stock in portfolio['Stock']:
-            yf_symbol = stock_mapping.get(stock)
-            live_metrics = get_live_data(yf_symbol)
-            extra_data.append(live_metrics)
-        extra_df = pd.DataFrame(extra_data)
-        portfolio = pd.concat([portfolio, extra_df], axis=1)
-
-    st.markdown("### Recommended Portfolio")
-    st.dataframe(portfolio, use_container_width=True)
-
-    fig, ax = plt.subplots()
-    ax.pie(portfolio['Investment Amount (Rs.)'], labels=portfolio['Stock'], autopct='%1.1f%%')
-    ax.set_title("Investment Allocation")
-    st.pyplot(fig)
-
-    # Earnings simulation
-    st.markdown("### Projected Earnings")
-    rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
-    projections = pd.DataFrame({'Year': list(range(0, duration + 1))})
-    for name, rate in rates.items():
-        projections[name] = investment_amount * ((1 + rate) ** projections['Year'])
-
-    fig2, ax2 = plt.subplots()
-    for col in projections.columns[1:]:
-        ax2.plot(projections['Year'], projections[col], label=col)
-    ax2.set_title("Projected Portfolio Value")
-    ax2.legend()
-    st.pyplot(fig2)
-
-    # Download button
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
-        projections.to_excel(writer, sheet_name='Projection', index=False)
-    output.seek(0)
-    st.download_button("Download Excel Report", data=output.read(), file_name="portfolio_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    'TCS': 'Conservative', 'HDFC Bank': 'Moderate', 'Infosys': 'Moderate'
