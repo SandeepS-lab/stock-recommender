@@ -65,13 +65,17 @@ stock_risk = {
 # ----------------------------
 # Streamlit UI
 # ----------------------------
+
 st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
 st.title("AI-Based Stock Recommender with Live Data")
 
+def format_currency(val):
+    return f"Rs. {val:,.0f}"
+
 st.header("Enter Client Profile")
 age = st.slider("Client Age", 18, 75, 35)
-income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
-investment_amount = st.number_input("Total Investment Amount (₹)", min_value=1000, value=100000, step=10000)
+income = st.number_input("Monthly Income (Rs.)", min_value=0, value=50000, step=5000)
+investment_amount = st.number_input("Total Investment Amount (Rs.)", min_value=1000, value=100000, step=10000)
 dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
 qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
@@ -81,7 +85,7 @@ live_data_toggle = st.checkbox("Use Live Data from YFinance")
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile: {risk_profile}")
-    st.info(f"Investment Allocation for ₹{investment_amount:,.0f}")
+    st.info(f"Investment Allocation for {format_currency(investment_amount)}")
 
     filtered_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
     if len(filtered_stocks) < 5:
@@ -93,7 +97,9 @@ if st.button("Generate Recommendation"):
                 break
 
     yf_symbols = [stock_mapping[s] for s in filtered_stocks]
-    prices = yf.download(yf_symbols, period="1y")['Adj Close'].dropna()
+    raw_data = yf.download(yf_symbols, period="1y", interval="1d")
+    prices = raw_data['Adj Close'] if 'Adj Close' in raw_data else raw_data['Close']
+    prices = prices.dropna()
     mu = mean_historical_return(prices)
     S = CovarianceShrinkage(prices).ledoit_wolf()
     ef = EfficientFrontier(mu, S)
@@ -106,7 +112,7 @@ if st.button("Generate Recommendation"):
     portfolio = pd.DataFrame({
         'Stock': filtered_stocks,
         'Weight %': [round(w * 100, 2) for w in weights],
-        'Investment Amount (₹)': [round(inv) for inv in investment_per_stock]
+        'Investment Amount (Rs.)': [round(inv) for inv in investment_per_stock]
     })
 
     if live_data_toggle:
@@ -122,7 +128,7 @@ if st.button("Generate Recommendation"):
     st.dataframe(portfolio, use_container_width=True)
 
     fig, ax = plt.subplots()
-    ax.pie(portfolio['Investment Amount (₹)'], labels=portfolio['Stock'], autopct='%1.1f%%')
+    ax.pie(portfolio['Investment Amount (Rs.)'], labels=portfolio['Stock'], autopct='%1.1f%%')
     ax.set_title("Investment Allocation")
     st.pyplot(fig)
 
@@ -145,4 +151,5 @@ if st.button("Generate Recommendation"):
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
         projections.to_excel(writer, sheet_name='Projection', index=False)
-    st.download_button("Download Excel Report", data=output.getvalue(), file_name="portfolio_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    output.seek(0)
+    st.download_button("Download Excel Report", data=output.read(), file_name="portfolio_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
