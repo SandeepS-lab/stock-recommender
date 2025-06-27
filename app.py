@@ -98,7 +98,7 @@ def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
     valid = [t for t in tickers if t is not None]
 
     if not valid:
-        return None, None, {"Error": "No valid tickers found for backtest."}
+        return None, None, {"Error": "No valid tickers found for backtest."}, 0, 0, 0
 
     try:
         data = yf.download(valid, start=start, end=end)['Adj Close'].dropna()
@@ -162,6 +162,13 @@ if st.button("Generate Recommendation"):
         ax1.set_title("Investment Allocation")
         st.pyplot(fig1)
 
+        fig_bar, ax_bar = plt.subplots()
+        ax_bar.bar(recommended_stocks['Stock'], recommended_stocks['Investment Amount (₹)'], color='skyblue')
+        ax_bar.set_ylabel("Investment Amount (₹)")
+        ax_bar.set_title("Investment Amount by Stock")
+        plt.xticks(rotation=45)
+        st.pyplot(fig_bar)
+
         st.markdown("### Projected Earnings")
         earnings = simulate_earnings(investment_amount, duration)
         fig2, ax2 = plt.subplots()
@@ -190,13 +197,20 @@ if st.button("Generate Recommendation"):
             ax_bt.legend()
             st.pyplot(fig_bt)
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("CAGR", f"{cagr * 100:.2f}%")
-            col2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-            col3.metric("Expected Value", f"₹{investment_amount * ((1 + cagr) ** duration):,.0f}")
+            st.write("#### Backtest Summary")
+            st.write(f"**CAGR**: {cagr * 100:.2f}%")
+            st.write(f"**Sharpe Ratio**: {sharpe:.2f}")
+            st.write(f"**Expected Portfolio Value in {duration} Years**: ₹{investment_amount * ((1 + cagr) ** duration):,.0f}")
 
-            st.markdown("### Interpretation")
-            st.info(f"Based on historical trends, your portfolio grew at an average rate of {cagr * 100:.2f}% annually, which means your ₹{investment_amount:,.0f} investment could grow to ₹{investment_amount * ((1 + cagr) ** duration):,.0f} in {duration} years. The Sharpe Ratio of {sharpe:.2f} suggests a solid return considering the level of risk taken. This indicates a well-balanced portfolio that has outperformed the NIFTY 50 index in the given period.")
+            st.markdown("### Interpretation (AI Commentary)")
+            interpretation = f"""
+            Based on historical data, your selected portfolio has delivered a **CAGR of {cagr*100:.2f}%** over the last few years.
+            If similar conditions persist, your ₹{investment_amount:,.0f} investment could grow to approximately ₹{investment_amount * ((1 + cagr) ** duration):,.0f} in {duration} years.
+
+            A **Sharpe Ratio of {sharpe:.2f}** indicates that the portfolio has offered attractive risk-adjusted returns.
+            This suggests a healthy balance of reward relative to volatility, making it suitable for your current risk profile.
+            """
+            st.info(interpretation)
 
             st.table(metrics)
         else:
