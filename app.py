@@ -45,7 +45,8 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
         dfs = []
         for cat, portion in portions.items():
-            temp = df[df['Risk Category'] == cat].copy().drop_duplicates(subset='Stock')
+            temp = df[df['Risk Category'] == cat].copy()
+            temp = temp.drop_duplicates(subset='Stock')
             if not temp.empty:
                 temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
                 temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
@@ -108,36 +109,38 @@ if st.button("Generate Recommendation"):
         st.markdown("### Recommended Stock Portfolio")
         st.dataframe(recommended_stocks, use_container_width=True)
 
-        # Pie Chart
-        fig1, ax1 = plt.subplots()
-        ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
-        ax1.set_title("Investment Allocation Breakdown")
-        st.pyplot(fig1)
+        # --------- Pie Chart ---------
+        if recommended_stocks['Investment Amount (₹)'].sum() > 0:
+            fig1, ax1 = plt.subplots()
+            ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
+            ax1.set_title("Investment Allocation Breakdown")
+            st.pyplot(fig1)
 
-        # Bar Chart
+        # --------- Bar Chart ---------
         fig2, ax2 = plt.subplots()
         ax2.bar(recommended_stocks['Stock'], recommended_stocks['Weight %'], color='skyblue')
         ax2.set_title("Portfolio Weights by Stock")
         ax2.set_ylabel("Weight (%)")
+        ax2.set_xticklabels(recommended_stocks['Stock'], rotation=45)
         st.pyplot(fig2)
 
-        # Earnings Simulation
+        # --------- Line Chart (Projection) ---------
         st.markdown("### Projected Earnings Scenarios")
         earnings = simulate_earnings(investment_amount, duration)
-
         fig3, ax3 = plt.subplots()
         for col in earnings.columns[1:]:
             ax3.plot(earnings['Year'], earnings[col], label=col)
         ax3.set_title("Projected Portfolio Value Over Time")
         ax3.set_ylabel("Portfolio Value (₹)")
+        ax3.set_xlabel("Year")
         ax3.legend()
         st.pyplot(fig3)
 
-        # Download Excel
+        # --------- Excel Export ---------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             recommended_stocks.to_excel(writer, sheet_name='Portfolio', index=False)
-            earnings.to_excel(writer, sheet_name='Earnings Projection', index=False)
+            earnings.to_excel(writer, sheet_name='Projections', index=False)
         st.download_button(
             label="Download Excel Report",
             data=output.getvalue(),
