@@ -1,81 +1,36 @@
-import yfinance as yf
+import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import norm
+from io import BytesIO
 
 # ----------------------------
-# Backtesting Function
+# Risk Profiling Logic
 # ----------------------------
 
-def backtest_portfolio(stocks, weights, start='2019-01-01', benchmark='^NSEI'):
-    tickers = stocks.tolist() + [benchmark]
-    data = yf.download(tickers, start=start)['Adj Close'].dropna()
-    
-    # Normalize
-    normalized = data / data.iloc[0]
-    
-    # Portfolio Return
-    portfolio = (normalized[stocks] * weights).sum(axis=1)
-    
-    # Cumulative returns
-    portfolio_returns = portfolio.pct_change().dropna()
-    benchmark_returns = normalized[benchmark].pct_change().dropna()
+def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
+    score = 0
+    if age < 30: score += 2
+    elif age < 45: score += 1
+    if income > 100000: score += 2
+    elif income > 50000: score += 1
+    if dependents >= 3: score -= 1
+    if qualification in ["Postgraduate", "Professional"]: score += 1
+    if duration >= 5: score += 1
+    if investment_type == "SIP": score += 1
 
-    # Metrics
-    def calculate_metrics(returns):
-        cagr = (portfolio.iloc[-1] / portfolio.iloc[0]) ** (1 / ((len(returns)) / 252)) - 1
-        volatility = np.std(returns) * np.sqrt(252)
-        sharpe = (np.mean(returns) - 0.04/252) / np.std(returns) * np.sqrt(252)
-        running_max = np.maximum.accumulate(portfolio)
-        drawdown = (portfolio / running_max) - 1
-        max_dd = drawdown.min()
-        return {
-            "CAGR": round(cagr * 100, 2),
-            "Volatility": round(volatility * 100, 2),
-            "Sharpe Ratio": round(sharpe, 2),
-            "Max Drawdown": round(max_dd * 100, 2)
-        }
-
-    metrics = calculate_metrics(portfolio_returns)
-    benchmark_metrics = calculate_metrics(benchmark_returns)
-
-    return portfolio, normalized[benchmark], metrics, benchmark_metrics
+    if score <= 2:
+        return "Conservative"
+    elif score <= 5:
+        return "Moderate"
+    else:
+        return "Aggressive"
 
 # ----------------------------
-# Commentary Generator
+# Stock Recommendation Logic
 # ----------------------------
 
-def generate_ai_commentary(risk_profile, selected_stocks, duration):
-    sectors = {
-        "TCS": "Technology", "Infosys": "Technology", "HDFC Bank": "Financials",
-        "Adani Enterprises": "Conglomerate", "Zomato": "Consumer", "Reliance Industries": "Energy",
-        "Bajaj Finance": "Financials", "IRCTC": "Travel"
-    }
-    dominant_sector = selected_stocks['Stock'].map(sectors).mode().values[0]
-    
-    risk_summary = {
-        "Conservative": "risk-averse with a focus on capital protection.",
-        "Moderate": "balanced with growth opportunities and reasonable stability.",
-        "Aggressive": "growth-focused with high return potential and associated risks."
-    }
-
-    return (
-        f"Your portfolio is {risk_summary[risk_profile]} "
-        f"It has a strong tilt towards the **{dominant_sector}** sector, "
-        f"which is expected to perform well over a {duration}-year horizon. "
-        f"This portfolio is designed to align with your client's financial goals and risk appetite."
-    )
-
-# ----------------------------
-# Plotting Function
-# ----------------------------
-
-def plot_cumulative_returns(portfolio, benchmark):
-    fig, ax = plt.subplots()
-    portfolio.plot(label="Portfolio", ax=ax)
-    benchmark.plot(label="Nifty 50", ax=ax)
-    ax.set_title("Cumulative Returns: Portfolio vs Nifty 50")
-    ax.set_ylabel("Growth (Indexed)")
-    ax.legend()
-    return fig
+def get_stock_list(risk_profile, investment_amount, diversify=False):
+    data = {
+        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
+                  'Re
