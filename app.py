@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from io import BytesIO
+from pypfopt.efficient_frontier import EfficientFrontier
+from pypfopt.expected_returns import mean_historical_return
+from pypfopt.risk_models import CovarianceShrinkage
 
 # ----------------------------
 # Risk Profiling Logic
@@ -89,8 +92,16 @@ if st.button("Generate Recommendation"):
             if len(filtered_stocks) == 5:
                 break
 
-    weights = [1 / len(filtered_stocks)] * len(filtered_stocks)
-    investment_per_stock = [(w * investment_amount) for w in weights]
+    yf_symbols = [stock_mapping[s] for s in filtered_stocks]
+    prices = yf.download(yf_symbols, period="1y")['Adj Close'].dropna()
+    mu = mean_historical_return(prices)
+    S = CovarianceShrinkage(prices).ledoit_wolf()
+    ef = EfficientFrontier(mu, S)
+    optimized_weights = ef.max_sharpe()
+    cleaned_weights = ef.clean_weights()
+
+    weights = np.array([cleaned_weights.get(stock_mapping[s], 0) for s in filtered_stocks])
+    investment_per_stock = (weights * investment_amount)
 
     portfolio = pd.DataFrame({
         'Stock': filtered_stocks,
