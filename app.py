@@ -72,4 +72,34 @@ with st.form("user_input"):
     age = st.slider("Age", 18, 75, 35)
     income = st.number_input("Monthly Income (₹)", value=50000)
     investment_amount = st.number_input("Investment Amount (₹)", value=100000)
-    dependents = st.select
+    dependents = st.selectbox("Dependents", [0, 1, 2, 3, 4])
+    qualification = st.selectbox("Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
+    duration = st.slider("Investment Duration (Years)", 1, 30, 5)
+    investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
+    diversify = st.checkbox("Diversify Across All Risk Types", value=False)
+    submitted = st.form_submit_button("Generate Recommendation")
+
+if submitted:
+    risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
+    st.markdown(f"**Risk Profile:** {risk_profile}")
+    st.markdown(f"**Investment Amount:** ₹{investment_amount:,}")
+
+    portfolio = get_stock_list(risk_profile, investment_amount, diversify=diversify)
+    st.subheader("📋 Recommended Portfolio")
+    st.dataframe(portfolio)
+
+    # Pie Chart
+    fig, ax = plt.subplots()
+    ax.pie(portfolio['Investment Amount (₹)'], labels=portfolio['Stock'], autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')
+    st.subheader("💼 Portfolio Allocation")
+    st.pyplot(fig)
+
+    # Download as Excel
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
+    output.seek(0)
+    st.download_button("📥 Download Portfolio (Excel)", data=output.read(),
+                       file_name="recommended_portfolio.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
