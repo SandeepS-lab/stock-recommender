@@ -2,3 +2,6 @@ streamlit
 pandas
 numpy
 yfinance
+git add requirements.txt
+git commit -m "Add requirements.txt for Streamlit Cloud"
+git push
