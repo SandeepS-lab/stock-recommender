@@ -1,3 +1,7 @@
+from pathlib import Path
+
+# Save the fully corrected version of the Streamlit app with all UTF-8 fixes
+corrected_code = """
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,26 +13,20 @@ from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 import sys
 import os
-import locale
 
-# Ensure UTF-8 Encoding on All Platforms
-locale.setlocale(locale.LC_ALL, '')
+# Force UTF-8 encoding for Windows to avoid UnicodeEncodeError
 if sys.platform == "win32":
-    os.environ['PYTHONIOENCODING'] = 'utf-8'
-    sys.stdout.reconfigure(encoding='utf-8')
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
+    sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf8', buffering=1)
 
-# ----------------------------
-# Utility to safely stringify
-# ----------------------------
+# Safe string conversion
 def safe_str(val):
     try:
         return str(val).encode('utf-8', 'ignore').decode('utf-8')
     except:
         return str(val)
 
-# ----------------------------
-# Risk Profiling Logic
-# ----------------------------
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -47,9 +45,6 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
     else:
         return "Aggressive"
 
-# ----------------------------
-# Live Data Function
-# ----------------------------
 def get_live_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -73,9 +68,6 @@ def get_live_data(symbol):
             'Error': safe_str(e)
         }
 
-# ----------------------------
-# Static Stock Mappings
-# ----------------------------
 stock_mapping = {
     'TCS': 'TCS.NS',
     'HDFC Bank': 'HDFCBANK.NS',
@@ -98,9 +90,6 @@ stock_risk = {
     'IRCTC': 'Aggressive'
 }
 
-# ----------------------------
-# Streamlit UI
-# ----------------------------
 st.set_page_config(page_title="Stock Recommender", layout="centered")
 st.title("AI-Based Stock Recommender")
 
@@ -158,12 +147,10 @@ if st.button("Generate Recommendation"):
     st.subheader("Recommended Portfolio")
     st.dataframe(portfolio)
 
-    # Pie Chart
     fig, ax = plt.subplots()
     ax.pie(portfolio['Investment Amount (Rs.)'], labels=portfolio['Stock'], autopct='%1.1f%%')
     st.pyplot(fig)
 
-    # Projection
     st.subheader("Projected Portfolio Value")
     projections = pd.DataFrame({'Year': list(range(duration + 1))})
     for label, rate in {'Bear': -0.05, 'Base': 0.08, 'Bull': 0.15}.items():
@@ -175,10 +162,16 @@ if st.button("Generate Recommendation"):
     ax2.legend()
     st.pyplot(fig2)
 
-    # Excel Download
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
         projections.to_excel(writer, sheet_name='Projections', index=False)
     output.seek(0)
     st.download_button("Download Report (Excel)", output.read(), file_name="portfolio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+"""
+
+# Save the corrected code to a Python file
+output_file = Path("/mnt/data/stock_recommender_utf8_safe.py")
+output_file.write_text(corrected_code)
+
+output_file.name
