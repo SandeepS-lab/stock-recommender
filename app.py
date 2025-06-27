@@ -56,7 +56,6 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
             others = df[df['Risk Category'] != risk_profile]
             needed = 5 - len(selected)
             selected = pd.concat([selected, others.head(needed)])
-
         selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
         selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
         selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
@@ -69,10 +68,10 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
 # ----------------------------
 
 st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
-st.title("💼 AI-Based Stock Recommender for Mutual Fund Managers")
+st.title("AI-Based Stock Recommender for Mutual Fund Managers")
 st.markdown("This intelligent assistant recommends stock allocations based on a client's risk profile using advanced metrics.")
 
-st.header("📋 Enter Client Profile")
+st.header("Enter Client Profile")
 
 # Input fields
 age = st.slider("Client Age", 18, 75, 35)
@@ -82,18 +81,18 @@ dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
 qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-diversify = st.checkbox("🔀 Diversify portfolio across all risk levels")
+diversify = st.checkbox("Diversify portfolio across all risk levels")
 
 # Recommendation button
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
-    st.success(f"📊 Risk Profile: **{risk_profile}**")
-    st.info(f"💰 Investment Allocation for ₹{investment_amount:,.0f}")
+    st.success(f"Risk Profile: {risk_profile}")
+    st.info(f"Investment Allocation for ₹{investment_amount:,.0f}")
 
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
 
     if not recommended_stocks.empty:
-        st.markdown("### 📈 Recommended Stock Portfolio")
+        st.markdown("Recommended Stock Portfolio")
         st.dataframe(recommended_stocks, use_container_width=True)
     else:
         st.warning("No suitable stocks found for this risk profile.")
