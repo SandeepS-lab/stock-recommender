@@ -37,15 +37,23 @@ def get_live_data(symbol):
         ticker = yf.Ticker(symbol)
         info = ticker.info
         return {
-            'Price': info.get('currentPrice'),
-            '52 Week High': info.get('fiftyTwoWeekHigh'),
-            '52 Week Low': info.get('fiftyTwoWeekLow'),
-            'PE Ratio': info.get('trailingPE'),
-            'Dividend Yield': info.get('dividendYield'),
-            'Beta': info.get('beta')
+            'Price': float(info.get('currentPrice') or 0),
+            '52 Week High': float(info.get('fiftyTwoWeekHigh') or 0),
+            '52 Week Low': float(info.get('fiftyTwoWeekLow') or 0),
+            'PE Ratio': float(info.get('trailingPE') or 0),
+            'Dividend Yield': float(info.get('dividendYield') or 0),
+            'Beta': float(info.get('beta') or 0)
         }
     except Exception as e:
-        return {'Error': str(e)}
+        return {
+            'Price': 0,
+            '52 Week High': 0,
+            '52 Week Low': 0,
+            'PE Ratio': 0,
+            'Dividend Yield': 0,
+            'Beta': 0,
+            'Error': str(e).encode('utf-8', 'ignore').decode('utf-8')
+        }
 
 # ----------------------------
 # Static Data Table
