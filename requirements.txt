@@ -8,3 +8,4 @@ xlsxwriter
 PyPortfolioOpt
 cvxpy
 scikit-learn
+scipy
