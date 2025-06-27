@@ -1,5 +1,5 @@
-# AI-Based Stock Recommender with Enhancements (ASCII-Only)
-# Features added: Multi-step form (st.form), backtest chart, PDF export placeholder, session state save/load, ASCII-only content
+# ASCII-only AI-Based Stock Recommender (UTF-8 Removed)
+# Enhancements: st.form, backtest chart, pie chart with legend, Excel export, fully ASCII-safe
 
 import streamlit as st
 import pandas as pd
@@ -13,15 +13,13 @@ from pypfopt.risk_models import CovarianceShrinkage
 import re
 
 # ASCII sanitization
-
 def ascii_only(val):
     try:
         return re.sub(r'[^\x00-\x7F]+', '', str(val))
     except:
         return str(val)
 
-# Risk Profile Scoring
-
+# Risk Profile Logic
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -39,8 +37,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
     else:
         return "Aggressive"
 
-# Get live stock info safely
-
+# Fetch live stock data
 def get_live_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -64,7 +61,7 @@ def get_live_data(symbol):
             'Error': ascii_only(e)
         }
 
-# Mapping and risk tags
+# Stock symbols and risk categories
 stock_mapping = {
     'TCS': 'TCS.NS',
     'HDFC Bank': 'HDFCBANK.NS',
@@ -87,67 +84,63 @@ stock_risk = {
     'IRCTC': 'Aggressive'
 }
 
-# Streamlit Setup
-st.set_page_config(page_title="AI Stock Recommender", layout="centered")
-st.title("AI-Based Stock Recommender")
+st.set_page_config(page_title="Stock Recommender", layout="centered")
+st.title("Stock Recommender")
 
-# Multi-step Form UI
-with st.form("user_input"):
-    st.subheader("Client Risk Profile")
+# Form input
+with st.form("input_form"):
+    st.subheader("Client Details")
     age = st.slider("Age", 18, 75, 35)
     income = st.number_input("Monthly Income (Rs)", value=50000)
-    investment_amount = st.number_input("Total Investment Amount (Rs)", value=100000)
-    dependents = st.selectbox("Dependents", [0, 1, 2, 3, 4])
+    investment_amount = st.number_input("Investment Amount (Rs)", value=100000)
+    dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
     qualification = st.selectbox("Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
     duration = st.slider("Investment Duration (Years)", 1, 30, 5)
-    investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-    live_data_toggle = st.checkbox("Use Live YFinance Data")
-    submitted = st.form_submit_button("Generate Recommendation")
+    investment_type = st.radio("Investment Mode", ["Lumpsum", "SIP"])
+    live_data_toggle = st.checkbox("Enable Live Data")
+    submitted = st.form_submit_button("Recommend Portfolio")
 
 if submitted:
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
-    st.write(f"Risk Profile: {ascii_only(risk_profile)}")
-    st.write(f"Investment Amount: Rs {investment_amount:,}")
+    st.write("Risk Profile:", ascii_only(risk_profile))
+    st.write("Total Investment: Rs", f"{investment_amount:,}")
 
-    filtered_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
-    while len(filtered_stocks) < 5:
-        for stock in stock_risk:
-            if stock not in filtered_stocks:
-                filtered_stocks.append(stock)
-            if len(filtered_stocks) >= 5:
+    selected_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
+    while len(selected_stocks) < 5:
+        for s in stock_risk:
+            if s not in selected_stocks:
+                selected_stocks.append(s)
+            if len(selected_stocks) >= 5:
                 break
 
-    yf_symbols = [stock_mapping[s] for s in filtered_stocks]
-    raw_data = yf.download(yf_symbols, period="1y", interval="1d", progress=False)
-    prices = raw_data['Adj Close'] if 'Adj Close' in raw_data else raw_data['Close']
+    symbols = [stock_mapping[s] for s in selected_stocks]
+    raw = yf.download(symbols, period="1y", interval="1d", progress=False)
+    prices = raw['Adj Close'] if 'Adj Close' in raw else raw['Close']
     prices = prices.dropna()
 
     mu = mean_historical_return(prices)
     S = CovarianceShrinkage(prices).ledoit_wolf()
     ef = EfficientFrontier(mu, S)
     cleaned_weights = ef.clean_weights()
-
-    weights = np.array([cleaned_weights.get(stock_mapping[s], 0) for s in filtered_stocks])
-    investment_per_stock = weights * investment_amount
+    weights = np.array([cleaned_weights.get(stock_mapping[s], 0) for s in selected_stocks])
+    invested = weights * investment_amount
 
     portfolio = pd.DataFrame({
-        'Stock': [ascii_only(s) for s in filtered_stocks],
+        'Stock': [ascii_only(s) for s in selected_stocks],
         'Weight %': [round(w * 100, 2) for w in weights],
-        'Investment Amount (Rs)': [round(i) for i in investment_per_stock]
+        'Investment Amount (Rs)': [round(i) for i in invested]
     })
 
     if live_data_toggle:
-        extra_data = []
+        more = []
         for stock in portfolio['Stock']:
-            symbol = stock_mapping[stock]
-            metrics = get_live_data(symbol)
-            extra_data.append(metrics)
-        portfolio = pd.concat([portfolio, pd.DataFrame(extra_data)], axis=1)
+            sym = stock_mapping[stock]
+            more.append(get_live_data(sym))
+        portfolio = pd.concat([portfolio, pd.DataFrame(more)], axis=1)
 
-    st.subheader("Recommended Portfolio")
+    st.subheader("Portfolio Recommendation")
     st.dataframe(portfolio)
 
-    # Pie Chart with Legend (No UTF)
     fig, ax = plt.subplots()
     wedges, texts, autotexts = ax.pie(
         portfolio['Investment Amount (Rs)'],
@@ -160,19 +153,17 @@ if submitted:
     st.subheader("Portfolio Allocation")
     st.pyplot(fig)
 
-    # Backtest line chart
-    st.subheader("1-Year Backtest Performance")
+    st.subheader("Backtest (1 Year)")
     cumulative = (prices / prices.iloc[0]) * 100000
     fig2, ax2 = plt.subplots()
     cumulative.plot(ax=ax2)
     ax2.set_ylabel("Portfolio Value (Rs)")
-    ax2.set_title("Portfolio Backtest")
+    ax2.set_title("Backtest Performance")
     st.pyplot(fig2)
 
-    # Download Excel Report
-    output = BytesIO()
+    out = BytesIO()
     portfolio_ascii = portfolio.applymap(ascii_only)
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
         portfolio_ascii.to_excel(writer, sheet_name='Portfolio', index=False)
-    output.seek(0)
-    st.download_button("Download Report (Excel)", output.read(), file_name="portfolio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    out.seek(0)
+    st.download_button("Download Excel", out.read(), file_name="portfolio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
