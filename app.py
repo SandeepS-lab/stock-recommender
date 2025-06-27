@@ -101,7 +101,14 @@ def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
         return None, None, {"Error": "No valid tickers found for backtest."}, 0, 0, 0
 
     try:
-        data = yf.download(valid, start=start, end=end)['Adj Close'].dropna()
+        raw_data = yf.download(valid, start=start, end=end)
+        if 'Adj Close' in raw_data.columns:
+            data = raw_data['Adj Close']
+        else:
+            data = raw_data  # fallback if only one ticker
+        if isinstance(data, pd.Series):
+            data = data.to_frame()
+        data = data.dropna()
         returns = data.pct_change().dropna()
         weights = weights[:len(data.columns)]
         portfolio_returns = (returns * weights).sum(axis=1)
@@ -213,6 +220,25 @@ if st.button("Generate Recommendation"):
             st.info(interpretation)
 
             st.table(metrics)
+
+            # --- Sector Allocation Chart ---
+            if 'Sector' in recommended_stocks.columns:
+                st.markdown("### Sector Allocation")
+                sector_alloc = recommended_stocks.groupby('Sector')['Investment Amount (₹)'].sum()
+                fig_sec, ax_sec = plt.subplots()
+                ax_sec.pie(sector_alloc, labels=sector_alloc.index, autopct='%1.1f%%')
+                ax_sec.set_title("Sector Exposure")
+                st.pyplot(fig_sec)
+
+            # --- NIFTY Alpha ---
+            nifty_cagr = (nifty_ret.iloc[-1]) ** (1 / duration) - 1
+            alpha = cagr - nifty_cagr
+            st.write(f"**Portfolio Alpha over NIFTY**: {alpha*100:.2f}%")
+
+            # --- Value at Risk (VaR) ---
+            portfolio_returns = cum_ret.pct_change().dropna()
+            VaR_95 = portfolio_returns.quantile(0.05)
+            st.write(f"**95% Value-at-Risk (1 Day)**: ₹{(investment_amount * VaR_95):,.0f}")
         else:
             st.warning(metrics.get("Error", "Backtest failed."))
     else:
