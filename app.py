@@ -118,15 +118,18 @@ def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
         drawdown = (cumulative / cumulative.cummax()) - 1
         max_drawdown = drawdown.min()
 
+        expected_value = (1 + cagr) ** years
+
         metrics = {
             "CAGR": f"{cagr*100:.2f}%",
             "Max Drawdown": f"{max_drawdown*100:.2f}%",
             "Sharpe Ratio": f"{sharpe:.2f}",
-            "Volatility": f"{volatility*100:.2f}%"
+            "Volatility": f"{volatility*100:.2f}%",
+            "Expected Growth Multiple": f"{expected_value:.2f}x"
         }
-        return cumulative, nifty_cumulative, metrics
+        return cumulative, nifty_cumulative, metrics, cagr, sharpe, expected_value
     except Exception as e:
-        return None, None, {"Error": str(e)}
+        return None, None, {"Error": str(e)}, 0, 0, 0
 
 # ----------------------------
 # Streamlit App
@@ -177,7 +180,7 @@ if st.button("Generate Recommendation"):
         st.markdown("### Backtest Results")
         tickers = recommended_stocks['Stock'].tolist()
         weights = recommended_stocks['Weight %'].values / 100
-        cum_ret, nifty_ret, metrics = backtest_portfolio(tickers, weights)
+        cum_ret, nifty_ret, metrics, cagr, sharpe, expected_value = backtest_portfolio(tickers, weights)
 
         if cum_ret is not None:
             fig_bt, ax_bt = plt.subplots()
@@ -186,6 +189,15 @@ if st.button("Generate Recommendation"):
             ax_bt.set_title("Cumulative Returns")
             ax_bt.legend()
             st.pyplot(fig_bt)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("CAGR", f"{cagr * 100:.2f}%")
+            col2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+            col3.metric("Expected Value", f"₹{investment_amount * ((1 + cagr) ** duration):,.0f}")
+
+            st.markdown("### Interpretation")
+            st.info(f"Over the past few years, your recommended portfolio achieved an average annual return of {cagr * 100:.2f}%. With a Sharpe Ratio of {sharpe:.2f}, the return per unit of risk is strong. Assuming similar performance continues, your ₹{investment_amount:,.0f} investment could grow to ₹{investment_amount * ((1 + cagr) ** duration):,.0f} in {duration} years.")
+
             st.table(metrics)
         else:
             st.warning(metrics.get("Error", "Backtest failed."))
