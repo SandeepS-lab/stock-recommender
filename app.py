@@ -8,15 +8,23 @@ from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
 import sys
-import locale
 import os
+import locale
 
-# ----------------------------
-# Safe UTF-8 setup
-# ----------------------------
+# Ensure UTF-8 Encoding on All Platforms
 locale.setlocale(locale.LC_ALL, '')
 if sys.platform == "win32":
     os.environ['PYTHONIOENCODING'] = 'utf-8'
+    sys.stdout.reconfigure(encoding='utf-8')
+
+# ----------------------------
+# Utility to safely stringify
+# ----------------------------
+def safe_str(val):
+    try:
+        return str(val).encode('utf-8', 'ignore').decode('utf-8')
+    except:
+        return str(val)
 
 # ----------------------------
 # Risk Profiling Logic
@@ -40,14 +48,8 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Live Stock Data (YFinance)
+# Live Data Function
 # ----------------------------
-def safe_str(val):
-    try:
-        return str(val).encode('utf-8', 'ignore').decode('utf-8')
-    except:
-        return str(val)
-
 def get_live_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -72,7 +74,7 @@ def get_live_data(symbol):
         }
 
 # ----------------------------
-# Static Data Table
+# Static Stock Mappings
 # ----------------------------
 stock_mapping = {
     'TCS': 'TCS.NS',
@@ -99,41 +101,84 @@ stock_risk = {
 # ----------------------------
 # Streamlit UI
 # ----------------------------
-st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
-st.title("AI-Based Stock Recommender with Live Data")
+st.set_page_config(page_title="Stock Recommender", layout="centered")
+st.title("AI-Based Stock Recommender")
 
-def format_currency(val):
-    return f"Rs. {val:,.0f}"
-
-st.subheader("Enter Client Profile")
-age = st.slider("Client Age", 18, 75, 35)
-income = st.number_input("Monthly Income (Rs.)", min_value=0, value=50000, step=5000)
-investment_amount = st.number_input("Total Investment Amount (Rs.)", min_value=1000, value=100000, step=10000)
-dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
-qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
+st.subheader("Client Profile")
+age = st.slider("Age", 18, 75, 35)
+income = st.number_input("Monthly Income (Rs.)", value=50000, step=5000)
+investment_amount = st.number_input("Total Investment Amount (Rs.)", value=100000, step=10000)
+dependents = st.selectbox("Dependents", [0, 1, 2, 3, 4])
+qualification = st.selectbox("Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-live_data_toggle = st.checkbox("Use Live Data from YFinance")
+live_data_toggle = st.checkbox("Use Live YFinance Data")
 
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
-    st.write(f"**Risk Profile:** {risk_profile}")
-    st.write(f"**Investment Allocation:** {format_currency(investment_amount)}")
+    st.write(f"Risk Profile: {risk_profile}")
+    st.write(f"Investment Amount: Rs. {investment_amount:,}")
 
     filtered_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
     if len(filtered_stocks) < 5:
-        all_stocks = list(stock_risk.keys())
-        for s in all_stocks:
-            if s not in filtered_stocks:
-                filtered_stocks.append(s)
-            if len(filtered_stocks) == 5:
+        for stock in stock_risk:
+            if stock not in filtered_stocks:
+                filtered_stocks.append(stock)
+            if len(filtered_stocks) >= 5:
                 break
 
     yf_symbols = [stock_mapping[s] for s in filtered_stocks]
     raw_data = yf.download(yf_symbols, period="1y", interval="1d")
     prices = raw_data['Adj Close'] if 'Adj Close' in raw_data else raw_data['Close']
     prices = prices.dropna()
+
     mu = mean_historical_return(prices)
     S = CovarianceShrinkage(prices).ledoit_wolf()
     ef = EfficientFrontier(mu, S)
-    optimized_weights = ef.max_
+    optimized_weights = ef.max_sharpe()
+    cleaned_weights = ef.clean_weights()
+
+    weights = np.array([cleaned_weights.get(stock_mapping[s], 0) for s in filtered_stocks])
+    investment_per_stock = (weights * investment_amount)
+
+    portfolio = pd.DataFrame({
+        'Stock': filtered_stocks,
+        'Weight %': [round(w * 100, 2) for w in weights],
+        'Investment Amount (Rs.)': [round(i) for i in investment_per_stock]
+    })
+
+    if live_data_toggle:
+        extra_data = []
+        for stock in portfolio['Stock']:
+            symbol = stock_mapping[stock]
+            metrics = get_live_data(symbol)
+            extra_data.append(metrics)
+        portfolio = pd.concat([portfolio, pd.DataFrame(extra_data)], axis=1)
+
+    st.subheader("Recommended Portfolio")
+    st.dataframe(portfolio)
+
+    # Pie Chart
+    fig, ax = plt.subplots()
+    ax.pie(portfolio['Investment Amount (Rs.)'], labels=portfolio['Stock'], autopct='%1.1f%%')
+    st.pyplot(fig)
+
+    # Projection
+    st.subheader("Projected Portfolio Value")
+    projections = pd.DataFrame({'Year': list(range(duration + 1))})
+    for label, rate in {'Bear': -0.05, 'Base': 0.08, 'Bull': 0.15}.items():
+        projections[label] = investment_amount * ((1 + rate) ** projections['Year'])
+
+    fig2, ax2 = plt.subplots()
+    for col in projections.columns[1:]:
+        ax2.plot(projections['Year'], projections[col], label=col)
+    ax2.legend()
+    st.pyplot(fig2)
+
+    # Excel Download
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
+        projections.to_excel(writer, sheet_name='Projections', index=False)
+    output.seek(0)
+    st.download_button("Download Report (Excel)", output.read(), file_name="portfolio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
