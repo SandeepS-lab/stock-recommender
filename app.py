@@ -48,12 +48,28 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         dfs = []
         for cat, portion in portions.items():
             temp = df[df['Risk Category'] == cat].copy()
-            temp = temp.drop_duplicates(subset='Stock')
-            if not temp.empty:
-                temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
-                temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
-                temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
-                dfs.append(temp)
-        selected = pd.concat(dfs)
+            temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
+            temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
+            temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
+            dfs.append(temp)
+        selected = pd.concat(dfs, ignore_index=True)
     else:
-        selected = df[df['Risk]()]()
+        selected = df[df['Risk Category'] == risk_profile].copy()
+        selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
+        selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
+        selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
+
+    return selected[['Stock', 'Risk Category', 'Sharpe Ratio', 'Beta', 'Weight %', 'Investment Amount (₹)']]
+
+# ----------------------------
+# Streamlit UI
+# ----------------------------
+
+st.set_page_config(page_title="Stock Recommender", layout="centered")
+st.title("📈 AI-Based Stock Recommender")
+
+with st.form("user_input"):
+    age = st.slider("Age", 18, 75, 35)
+    income = st.number_input("Monthly Income (₹)", value=50000)
+    investment_amount = st.number_input("Investment Amount (₹)", value=100000)
+    dependents = st.select
