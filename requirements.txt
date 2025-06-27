@@ -3,4 +3,8 @@ pandas
 numpy
 matplotlib
 yfinance
+openpyxl
 xlsxwriter
+PyPortfolioOpt
+cvxpy
+scikit-learn
