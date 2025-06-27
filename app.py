@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,14 +7,6 @@ from io import BytesIO
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
-import sys
-import os
-
-# Ensure UTF-8 encoding on Windows
-if sys.platform == "win32":
-    os.environ["PYTHONIOENCODING"] = "utf-8"
-    sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
-    sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf8', buffering=1)
 
 def safe_str(val):
     try:
