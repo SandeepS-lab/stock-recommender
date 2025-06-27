@@ -96,10 +96,7 @@ def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
         return None, None, {"Error": "No valid tickers found"}, 0, 0, 0
     try:
         raw_data = yf.download(valid, start=start, end=end)
-        if 'Adj Close' in raw_data.columns:
-            data = raw_data['Adj Close']
-        else:
-            data = raw_data
+        data = raw_data['Adj Close'] if 'Adj Close' in raw_data else raw_data
         if isinstance(data, pd.Series):
             data = data.to_frame()
         data = data.dropna()
@@ -111,24 +108,17 @@ def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
         nifty = yf.download("^NSEI", start=start, end=end)['Adj Close'].pct_change().dropna()
         nifty_cumulative = (1 + nifty).cumprod()
 
-        total_return = cumulative.iloc[-1] - 1
         years = (pd.to_datetime(end) - pd.to_datetime(start)).days / 365.25
         cagr = (cumulative.iloc[-1]) ** (1 / years) - 1
         volatility = portfolio_returns.std() * np.sqrt(252)
         sharpe = portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252)
-        drawdown = (cumulative / cumulative.cummax()) - 1
-        max_drawdown = drawdown.min()
-
-        expected_value = (1 + cagr) ** years
 
         metrics = {
             "CAGR": f"{cagr*100:.2f}%",
-            "Max Drawdown": f"{max_drawdown*100:.2f}%",
             "Sharpe Ratio": f"{sharpe:.2f}",
-            "Volatility": f"{volatility*100:.2f}%",
-            "Expected Growth Multiple": f"{expected_value:.2f}x"
+            "Volatility": f"{volatility*100:.2f}%"
         }
-        return cumulative, nifty_cumulative, metrics, cagr, sharpe, expected_value
+        return cumulative, nifty_cumulative, metrics, cagr, sharpe, 0
     except Exception as e:
         return None, None, {"Error": str(e)}, 0, 0, 0
 
@@ -157,13 +147,11 @@ if st.button("Generate Recommendation"):
         st.markdown("### Recommended Portfolio")
         st.dataframe(recommended_stocks, use_container_width=True)
 
-        # Pie Chart
         fig1, ax1 = plt.subplots()
         ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
         ax1.set_title("Investment Allocation")
         st.pyplot(fig1)
 
-        # Bar Chart
         fig_bar, ax_bar = plt.subplots()
         ax_bar.bar(recommended_stocks['Stock'], recommended_stocks['Investment Amount (₹)'], color='skyblue')
         ax_bar.set_ylabel("Investment Amount (₹)")
@@ -171,7 +159,6 @@ if st.button("Generate Recommendation"):
         plt.xticks(rotation=45)
         st.pyplot(fig_bar)
 
-        # Earnings Simulation
         st.markdown("### Projected Earnings")
         earnings = simulate_earnings(investment_amount, duration)
         fig2, ax2 = plt.subplots()
@@ -181,18 +168,16 @@ if st.button("Generate Recommendation"):
         ax2.legend()
         st.pyplot(fig2)
 
-        # Excel Export
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             recommended_stocks.to_excel(writer, sheet_name='Portfolio', index=False)
             earnings.to_excel(writer, sheet_name='Projections', index=False)
         st.download_button("Download Excel Report", output.getvalue(), file_name="portfolio.xlsx")
 
-        # Backtest
         st.markdown("### Backtest Results")
         tickers = recommended_stocks['Stock'].tolist()
         weights = recommended_stocks['Weight %'].values / 100
-        cum_ret, nifty_ret, metrics, cagr, sharpe, expected_value = backtest_portfolio(tickers, weights)
+        cum_ret, nifty_ret, metrics, cagr, sharpe, _ = backtest_portfolio(tickers, weights)
 
         if cum_ret is not None:
             fig_bt, ax_bt = plt.subplots()
@@ -204,32 +189,6 @@ if st.button("Generate Recommendation"):
 
             st.markdown("### Backtest Summary")
             st.table(metrics)
-
-            st.markdown("### AI Commentary")
-            st.info(
-                f"Over the last few years, this portfolio achieved a **CAGR of {cagr*100:.2f}%**, "
-                f"suggesting your ₹{investment_amount:,.0f} investment could grow to around ₹{investment_amount * ((1 + cagr) ** duration):,.0f} in {duration} years.\n\n"
-                f"A Sharpe Ratio of **{sharpe:.2f}** indicates attractive risk-adjusted returns, making this a suitable match for your risk profile."
-            )
-
-            # Sector Chart
-            if 'Sector' in recommended_stocks.columns:
-                st.markdown("### Sector Allocation")
-                sector_alloc = recommended_stocks.groupby('Sector')['Investment Amount (₹)'].sum()
-                fig_sec, ax_sec = plt.subplots()
-                ax_sec.pie(sector_alloc, labels=sector_alloc.index, autopct='%1.1f%%')
-                ax_sec.set_title("Sector Exposure")
-                st.pyplot(fig_sec)
-
-            # NIFTY Alpha
-            nifty_cagr = (nifty_ret.iloc[-1]) ** (1 / duration) - 1
-            alpha = cagr - nifty_cagr
-            st.write(f"**Portfolio Alpha over NIFTY**: {alpha*100:.2f}%")
-
-            # Value-at-Risk
-            portfolio_returns = cum_ret.pct_change().dropna()
-            VaR_95 = portfolio_returns.quantile(0.05)
-            st.write(f"**95% Value-at-Risk (1 Day)**: ₹{(investment_amount * VaR_95):,.0f}")
         else:
             st.warning(metrics.get("Error", "Backtest failed."))
     else:
