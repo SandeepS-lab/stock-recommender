@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 # ----------------------------
 # Risk Profiling Logic
@@ -44,6 +46,7 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         dfs = []
         for cat, portion in portions.items():
             temp = df[df['Risk Category'] == cat].copy()
+            temp = temp.drop_duplicates(subset='Stock')
             if not temp.empty:
                 temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
                 temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
@@ -51,9 +54,9 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
                 dfs.append(temp)
         selected = pd.concat(dfs)
     else:
-        selected = df[df['Risk Category'] == risk_profile].copy()
+        selected = df[df['Risk Category'] == risk_profile].drop_duplicates(subset='Stock').copy()
         if len(selected) < 5:
-            others = df[df['Risk Category'] != risk_profile]
+            others = df[df['Risk Category'] != risk_profile].drop_duplicates(subset='Stock')
             needed = 5 - len(selected)
             selected = pd.concat([selected, others.head(needed)])
         selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
@@ -64,16 +67,16 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
     return selected.drop(columns=['Score'])
 
 # ----------------------------
-# Streamlit App UI
+# Streamlit UI
 # ----------------------------
 
 st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
 st.title("AI-Based Stock Recommender for Mutual Fund Managers")
-st.markdown("This intelligent assistant recommends stock allocations based on a client's risk profile using advanced metrics.")
+st.markdown("This assistant recommends stock allocations based on a client's risk profile using advanced metrics.")
 
 st.header("Enter Client Profile")
 
-# Input fields
+# Inputs
 age = st.slider("Client Age", 18, 75, 35)
 income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
 investment_amount = st.number_input("Total Investment Amount (₹)", min_value=1000, value=100000, step=10000)
@@ -83,7 +86,6 @@ duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
 diversify = st.checkbox("Diversify portfolio across all risk levels")
 
-# Recommendation button
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile: {risk_profile}")
@@ -92,7 +94,25 @@ if st.button("Generate Recommendation"):
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
 
     if not recommended_stocks.empty:
-        st.markdown("Recommended Stock Portfolio")
+        st.markdown("### Recommended Stock Portfolio")
         st.dataframe(recommended_stocks, use_container_width=True)
+
+        # Pie chart
+        fig, ax = plt.subplots()
+        ax.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
+        ax.set_title("Investment Allocation Breakdown")
+        st.pyplot(fig)
+
+        # Download as Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            recommended_stocks.to_excel(writer, index=False, sheet_name='Recommendations')
+        st.download_button(
+            label="Download as Excel",
+            data=output.getvalue(),
+            file_name="stock_recommendation.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     else:
         st.warning("No suitable stocks found for this risk profile.")
