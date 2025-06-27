@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import yfinance as yf
 from io import BytesIO
 
 # ----------------------------
 # Risk Profiling Logic
 # ----------------------------
-
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -27,67 +27,45 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Stock Recommendation Logic
+# Live Stock Data (YFinance)
 # ----------------------------
-
-def get_stock_list(risk_profile, investment_amount, diversify=False):
-    data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato', 'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
-        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive', 'Moderate', 'Moderate', 'Aggressive']
-    }
-    df = pd.DataFrame(data)
-
-    if diversify:
-        portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
-        dfs = []
-        for cat, portion in portions.items():
-            temp = df[df['Risk Category'] == cat].copy()
-            temp = temp.drop_duplicates(subset='Stock')
-            if not temp.empty:
-                temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
-                temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
-                temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
-                dfs.append(temp)
-        selected = pd.concat(dfs)
-    else:
-        selected = df[df['Risk Category'] == risk_profile].copy().drop_duplicates(subset='Stock')
-        if len(selected) < 5:
-            others = df[df['Risk Category'] != risk_profile].drop_duplicates(subset='Stock')
-            selected = pd.concat([selected, others.head(5 - len(selected))])
-        selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
-        selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
-        selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
-
-    selected = selected.round({'Weight %': 2, 'Investment Amount (₹)': 0, 'Sharpe Ratio': 2, 'Beta': 2, 'Volatility': 2})
-    return selected.drop(columns=['Score'])
+def get_live_data(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        return {
+            'Price': info.get('currentPrice'),
+            '52 Week High': info.get('fiftyTwoWeekHigh'),
+            '52 Week Low': info.get('fiftyTwoWeekLow'),
+            'PE Ratio': info.get('trailingPE'),
+            'Dividend Yield': info.get('dividendYield'),
+            'Beta': info.get('beta')
+        }
+    except Exception as e:
+        return {'Error': str(e)}
 
 # ----------------------------
-# Earnings Simulation
+# Static Data Table
 # ----------------------------
+stock_mapping = {
+    'TCS': 'TCS.NS', 'HDFC Bank': 'HDFCBANK.NS', 'Infosys': 'INFY.NS',
+    'Adani Enterprises': 'ADANIENT.NS', 'Zomato': 'ZOMATO.NS',
+    'Reliance Industries': 'RELIANCE.NS', 'Bajaj Finance': 'BAJFINANCE.NS', 'IRCTC': 'IRCTC.NS'
+}
 
-def simulate_earnings(amount, years):
-    rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
-    result = pd.DataFrame({'Year': list(range(0, years + 1))})
-    for label, rate in rates.items():
-        result[label] = amount * ((1 + rate) ** result['Year'])
-    return result
+stock_risk = {
+    'TCS': 'Conservative', 'HDFC Bank': 'Moderate', 'Infosys': 'Moderate',
+    'Adani Enterprises': 'Aggressive', 'Zomato': 'Aggressive',
+    'Reliance Industries': 'Moderate', 'Bajaj Finance': 'Moderate', 'IRCTC': 'Aggressive'
+}
 
 # ----------------------------
 # Streamlit UI
 # ----------------------------
-
 st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
-st.title("AI-Based Stock Recommender for Mutual Fund Managers")
-
-st.markdown("Get stock allocations based on your client's risk profile with earnings forecasts under multiple market conditions.")
+st.title("AI-Based Stock Recommender with Live Data")
 
 st.header("Enter Client Profile")
-
-# Inputs
 age = st.slider("Client Age", 18, 75, 35)
 income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
 investment_amount = st.number_input("Total Investment Amount (₹)", min_value=1000, value=100000, step=10000)
@@ -95,58 +73,65 @@ dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
 qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-diversify = st.checkbox("Diversify portfolio across all risk levels")
+live_data_toggle = st.checkbox("Use Live Data from YFinance")
 
-# Generate button
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile: {risk_profile}")
     st.info(f"Investment Allocation for ₹{investment_amount:,.0f}")
 
-    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
+    filtered_stocks = [s for s, r in stock_risk.items() if r == risk_profile]
+    if len(filtered_stocks) < 5:
+        all_stocks = list(stock_risk.keys())
+        for s in all_stocks:
+            if s not in filtered_stocks:
+                filtered_stocks.append(s)
+            if len(filtered_stocks) == 5:
+                break
 
-    if not recommended_stocks.empty:
-        st.markdown("### Recommended Stock Portfolio")
-        st.dataframe(recommended_stocks, use_container_width=True)
+    weights = [1 / len(filtered_stocks)] * len(filtered_stocks)
+    investment_per_stock = [(w * investment_amount) for w in weights]
 
-        # --------- Pie Chart ---------
-        if recommended_stocks['Investment Amount (₹)'].sum() > 0:
-            fig1, ax1 = plt.subplots()
-            ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
-            ax1.set_title("Investment Allocation Breakdown")
-            st.pyplot(fig1)
+    portfolio = pd.DataFrame({
+        'Stock': filtered_stocks,
+        'Weight %': [round(w * 100, 2) for w in weights],
+        'Investment Amount (₹)': [round(inv) for inv in investment_per_stock]
+    })
 
-        # --------- Bar Chart ---------
-        fig2, ax2 = plt.subplots()
-        ax2.bar(recommended_stocks['Stock'], recommended_stocks['Weight %'], color='skyblue')
-        ax2.set_title("Portfolio Weights by Stock")
-        ax2.set_ylabel("Weight (%)")
-        ax2.set_xticklabels(recommended_stocks['Stock'], rotation=45)
-        st.pyplot(fig2)
+    if live_data_toggle:
+        extra_data = []
+        for stock in portfolio['Stock']:
+            yf_symbol = stock_mapping.get(stock)
+            live_metrics = get_live_data(yf_symbol)
+            extra_data.append(live_metrics)
+        extra_df = pd.DataFrame(extra_data)
+        portfolio = pd.concat([portfolio, extra_df], axis=1)
 
-        # --------- Line Chart (Projection) ---------
-        st.markdown("### Projected Earnings Scenarios")
-        earnings = simulate_earnings(investment_amount, duration)
-        fig3, ax3 = plt.subplots()
-        for col in earnings.columns[1:]:
-            ax3.plot(earnings['Year'], earnings[col], label=col)
-        ax3.set_title("Projected Portfolio Value Over Time")
-        ax3.set_ylabel("Portfolio Value (₹)")
-        ax3.set_xlabel("Year")
-        ax3.legend()
-        st.pyplot(fig3)
+    st.markdown("### Recommended Portfolio")
+    st.dataframe(portfolio, use_container_width=True)
 
-        # --------- Excel Export ---------
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            recommended_stocks.to_excel(writer, sheet_name='Portfolio', index=False)
-            earnings.to_excel(writer, sheet_name='Projections', index=False)
-        st.download_button(
-            label="Download Excel Report",
-            data=output.getvalue(),
-            file_name="stock_recommendation_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    fig, ax = plt.subplots()
+    ax.pie(portfolio['Investment Amount (₹)'], labels=portfolio['Stock'], autopct='%1.1f%%')
+    ax.set_title("Investment Allocation")
+    st.pyplot(fig)
 
-    else:
-        st.warning("No suitable stocks found for this risk profile.")
+    # Earnings simulation
+    st.markdown("### Projected Earnings")
+    rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
+    projections = pd.DataFrame({'Year': list(range(0, duration + 1))})
+    for name, rate in rates.items():
+        projections[name] = investment_amount * ((1 + rate) ** projections['Year'])
+
+    fig2, ax2 = plt.subplots()
+    for col in projections.columns[1:]:
+        ax2.plot(projections['Year'], projections[col], label=col)
+    ax2.set_title("Projected Portfolio Value")
+    ax2.legend()
+    st.pyplot(fig2)
+
+    # Download button
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        portfolio.to_excel(writer, sheet_name='Portfolio', index=False)
+        projections.to_excel(writer, sheet_name='Projection', index=False)
+    st.download_button("Download Excel Report", data=output.getvalue(), file_name="portfolio_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
