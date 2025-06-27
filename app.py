@@ -1,7 +1,4 @@
-from pathlib import Path
 
-# Save the fully corrected version of the Streamlit app with all UTF-8 fixes
-corrected_code = """
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,13 +11,12 @@ from pypfopt.risk_models import CovarianceShrinkage
 import sys
 import os
 
-# Force UTF-8 encoding for Windows to avoid UnicodeEncodeError
+# Ensure UTF-8 encoding on Windows
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
     sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
     sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf8', buffering=1)
 
-# Safe string conversion
 def safe_str(val):
     try:
         return str(val).encode('utf-8', 'ignore').decode('utf-8')
@@ -168,10 +164,3 @@ if st.button("Generate Recommendation"):
         projections.to_excel(writer, sheet_name='Projections', index=False)
     output.seek(0)
     st.download_button("Download Report (Excel)", output.read(), file_name="portfolio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-"""
-
-# Save the corrected code to a Python file
-output_file = Path("/mnt/data/stock_recommender_utf8_safe.py")
-output_file.write_text(corrected_code)
-
-output_file.name
