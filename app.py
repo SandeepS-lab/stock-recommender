@@ -33,4 +33,27 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
         'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
-                  'Re
+                  'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
+        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
+        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
+        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
+                          'Moderate', 'Moderate', 'Aggressive']
+    }
+    df = pd.DataFrame(data)
+
+    if diversify:
+        portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
+        dfs = []
+        for cat, portion in portions.items():
+            temp = df[df['Risk Category'] == cat].copy()
+            temp = temp.drop_duplicates(subset='Stock')
+            if not temp.empty:
+                temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
+                temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
+                temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
+                dfs.append(temp)
+        selected = pd.concat(dfs)
+    else:
+        selected = df[df['Risk]()]()
