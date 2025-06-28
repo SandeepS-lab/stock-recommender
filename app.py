@@ -2,12 +2,27 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import yfinance as yf
 from io import BytesIO
+from pypfopt import EfficientFrontier, risk_models, expected_returns
 
 # ----------------------------
-# Risk Profiling Logic
+# Ticker Map
 # ----------------------------
+TICKER_MAP = {
+    "TCS": "TCS.NS",
+    "HDFC Bank": "HDFCBANK.NS",
+    "Infosys": "INFY.NS",
+    "Adani Enterprises": "ADANIENT.NS",
+    "Zomato": "ZOMATO.NS",
+    "Reliance": "RELIANCE.NS",
+    "Bajaj Finance": "BAJFINANCE.NS",
+    "IRCTC": "IRCTC.NS"
+}
 
+# ----------------------------
+# Risk Profiling
+# ----------------------------
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -27,53 +42,11 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Basic Recommender
+# Enhanced Recommender
 # ----------------------------
-
-def get_stock_list(risk_profile, investment_amount, diversify=False):
-    data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
-                  'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
-        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
-                          'Moderate', 'Moderate', 'Aggressive']
-    }
-    df = pd.DataFrame(data)
-
-    if diversify:
-        portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
-        dfs = []
-        for cat, portion in portions.items():
-            temp = df[df['Risk Category'] == cat].copy()
-            if temp.empty: continue
-            temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
-            temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
-            temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
-            dfs.append(temp)
-        selected = pd.concat(dfs) if dfs else pd.DataFrame()
-    else:
-        selected = df[df['Risk Category'] == risk_profile].copy()
-        if len(selected) < 5:
-            others = df[df['Risk Category'] != risk_profile]
-            selected = pd.concat([selected, others.head(5 - len(selected))])
-        if selected.empty:
-            return pd.DataFrame()
-        selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
-        selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
-        selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
-
-    return selected.round(2).drop(columns=['Score']) if not selected.empty else pd.DataFrame()
-
-# ----------------------------
-# Enhanced Scoring Recommender
-# ----------------------------
-
 def enhanced_stock_selection(risk_profile, investment_amount):
     data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Ent.', 'Zomato', 'Reliance', 'Bajaj Fin.', 'IRCTC'],
+        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato', 'Reliance', 'Bajaj Finance', 'IRCTC'],
         'Sector': ['IT', 'Banking', 'IT', 'Infra', 'Tech', 'Energy', 'Finance', 'Travel'],
         'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
@@ -83,26 +56,38 @@ def enhanced_stock_selection(risk_profile, investment_amount):
                           'Moderate', 'Moderate', 'Aggressive']
     }
     df = pd.DataFrame(data)
-
     df['Score'] = (
         (df['Sharpe Ratio'] / df['Beta']) * 0.4 +
         (1 / df['P/E']) * 0.2 +
         (df['ROE'] / 100) * 0.4
     )
-
     filtered = df[df['Risk Category'] == risk_profile].copy()
-    if filtered.empty:
-        return pd.DataFrame()
-    filtered = filtered.sort_values(by='Score', ascending=False).head(4)
+    filtered = filtered.sort_values(by='Score', ascending=False).head(5)
     filtered['Weight %'] = filtered['Score'] / filtered['Score'].sum() * 100
     filtered['Investment Amount (₹)'] = filtered['Weight %'] / 100 * investment_amount
-
     return filtered[['Stock', 'Sector', 'Sharpe Ratio', 'Beta', 'P/E', 'ROE', 'Weight %', 'Investment Amount (₹)']].round(2)
+
+# ----------------------------
+# Sharpe Ratio Optimizer
+# ----------------------------
+def optimize_sharpe_ratio(selected_stocks, investment_amount):
+    tickers = selected_stocks['Stock'].map(TICKER_MAP).dropna().tolist()
+    data = yf.download(tickers, period="1y")['Adj Close'].dropna()
+    if data.shape[1] < 2:
+        return selected_stocks
+    mu = expected_returns.mean_historical_return(data)
+    S = risk_models.sample_cov(data)
+    ef = EfficientFrontier(mu, S)
+    weights = ef.max_sharpe()
+    cleaned_weights = ef.clean_weights()
+    selected_stocks = selected_stocks[selected_stocks['Stock'].map(TICKER_MAP).isin(cleaned_weights.keys())].copy()
+    selected_stocks['Weight %'] = selected_stocks['Stock'].map(cleaned_weights).fillna(0) * 100
+    selected_stocks['Investment Amount (₹)'] = selected_stocks['Weight %'] / 100 * investment_amount
+    return selected_stocks.round(2)
 
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
-
 def simulate_earnings(amount, years):
     rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
     result = pd.DataFrame({'Year': list(range(0, years + 1))})
@@ -111,100 +96,58 @@ def simulate_earnings(amount, years):
     return result
 
 # ----------------------------
-# AI Commentary Generator
-# ----------------------------
-
-def generate_ai_commentary(risk_profile, selected_stocks, duration):
-    sector_col = 'Sector' if 'Sector' in selected_stocks.columns else 'Market Cap'
-    if selected_stocks.empty or sector_col not in selected_stocks.columns:
-        return "No sufficient data to generate a commentary."
-    dominant_sector = selected_stocks[sector_col].mode().values[0]
-    risk_summary = {
-        "Conservative": "risk-averse with a focus on preserving capital and generating stable returns.",
-        "Moderate": "balanced, aiming for a mix of growth and income while managing moderate risk.",
-        "Aggressive": "growth-oriented, aiming for higher returns with an acceptance of market volatility."
-    }
-    return (
-        f"Based on your risk profile of **{risk_profile}**, the recommended portfolio is "
-        f"{risk_summary[risk_profile]} The portfolio has a noticeable allocation to the "
-        f"**{dominant_sector}** sector. Over a {duration}-year horizon, this strategy aligns well with "
-        f"your investment goals and risk appetite."
-    )
-
-# ----------------------------
 # Streamlit UI
 # ----------------------------
-
-st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
-st.title("📊 AI-Based Stock Recommender for Mutual Fund Managers")
-
-st.markdown("Get stock allocations based on your client's risk profile with earnings forecasts under multiple market conditions.")
+st.set_page_config(page_title="Sharpe Optimizer Recommender", layout="centered")
+st.title("Sharpe Optimized Stock Recommender")
+st.markdown("AI-based stock selection based on client's risk profile and Sharpe maximization.")
 
 st.header("Client Profile")
-
-age = st.slider("Client Age", 18, 75, 35)
+age = st.slider("Age", 18, 75, 35)
 income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
-investment_amount = st.number_input("Total Investment Amount (₹)", min_value=1000, value=100000, step=10000)
-dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
-qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
+investment_amount = st.number_input("Investment Amount (₹)", min_value=1000, value=100000, step=10000)
+dependents = st.selectbox("Dependents", [0, 1, 2, 3, 4])
+qualification = st.selectbox("Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-diversify = st.checkbox("Diversify portfolio across all risk levels")
-strategy = st.radio("Recommendation Strategy", ["Basic AI", "Enhanced Scoring"])
+strategy = st.radio("Strategy", ["Enhanced Scoring", "Sharpe Optimized Portfolio (MPT)"])
 
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile: {risk_profile}")
-    st.info(f"Investment Allocation for ₹{investment_amount:,.0f}")
+    stocks = enhanced_stock_selection(risk_profile, investment_amount)
 
-    if strategy == "Basic AI":
-        recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
-    else:
-        recommended_stocks = enhanced_stock_selection(risk_profile, investment_amount)
+    if strategy == "Sharpe Optimized Portfolio (MPT)":
+        stocks = optimize_sharpe_ratio(stocks, investment_amount)
 
-    if not recommended_stocks.empty:
-        st.markdown("### 📈 Recommended Stock Portfolio")
-        st.dataframe(recommended_stocks, use_container_width=True)
+    st.markdown("### Portfolio Recommendation")
+    st.dataframe(stocks, use_container_width=True)
 
-        if 'Investment Amount (₹)' in recommended_stocks.columns:
-            fig1, ax1 = plt.subplots()
-            ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
-            ax1.set_title("Investment Allocation Breakdown")
-            st.pyplot(fig1)
+    # Pie Chart
+    fig1, ax1 = plt.subplots()
+    ax1.pie(stocks['Investment Amount (₹)'], labels=stocks['Stock'], autopct='%1.1f%%')
+    ax1.set_title("Investment Allocation")
+    st.pyplot(fig1)
 
-        if 'Weight %' in recommended_stocks.columns:
-            fig2, ax2 = plt.subplots()
-            ax2.bar(recommended_stocks['Stock'], recommended_stocks['Weight %'], color='skyblue')
-            ax2.set_title("Portfolio Weights by Stock")
-            ax2.set_ylabel("Weight (%)")
-            ax2.set_xticks(range(len(recommended_stocks['Stock'])))
-            ax2.set_xticklabels(recommended_stocks['Stock'], rotation=45)
-            st.pyplot(fig2)
+    # Bar Chart
+    fig2, ax2 = plt.subplots()
+    ax2.bar(stocks['Stock'], stocks['Weight %'], color='skyblue')
+    ax2.set_title("Weight Distribution")
+    ax2.set_ylabel("Weight %")
+    st.pyplot(fig2)
 
-        st.markdown("### 💸 Projected Earnings Scenarios")
-        earnings = simulate_earnings(investment_amount, duration)
-        fig3, ax3 = plt.subplots()
-        for col in earnings.columns[1:]:
-            ax3.plot(earnings['Year'], earnings[col], label=col)
-        ax3.set_title("Projected Portfolio Value Over Time")
-        ax3.set_ylabel("Portfolio Value (₹)")
-        ax3.set_xlabel("Year")
-        ax3.legend()
-        st.pyplot(fig3)
+    # Earnings Forecast
+    earnings = simulate_earnings(investment_amount, duration)
+    st.markdown("### Projected Portfolio Value")
+    fig3, ax3 = plt.subplots()
+    for col in earnings.columns[1:]:
+        ax3.plot(earnings['Year'], earnings[col], label=col)
+    ax3.legend()
+    st.pyplot(fig3)
 
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            recommended_stocks.to_excel(writer, sheet_name='Portfolio', index=False)
-            earnings.to_excel(writer, sheet_name='Projections', index=False)
-        st.download_button(
-            label="📥 Download Excel Report",
-            data=output.getvalue(),
-            file_name="stock_recommendation_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        st.markdown("### 🤖 AI-Generated Commentary")
-        commentary = generate_ai_commentary(risk_profile, recommended_stocks, duration)
-        st.info(commentary)
-    else:
-        st.warning("❗ No suitable stocks found for this risk profile. Try adjusting parameters or switching strategy.")
+    # Download
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        stocks.to_excel(writer, sheet_name='Portfolio', index=False)
+        earnings.to_excel(writer, sheet_name='Earnings', index=False)
+    st.download_button("Download Excel Report", data=output.getvalue(), file_name="recommendation.xlsx")
