@@ -53,7 +53,7 @@ try:
 
 except Exception as e:
     # Fallback to predefined data
-    st.warning("\u26a0\ufe0f Falling back to sample data for Risk vs Return.")
+    st.warning("Warning: Falling back to sample data for Risk vs Return.")
     plot_df = pd.DataFrame({
         "Ticker": ["TCS", "Infosys", "Reliance", "Zomato"],
         "Volatility": [0.20, 0.22, 0.18, 0.35],
@@ -61,11 +61,10 @@ except Exception as e:
         "Sharpe Ratio": [1.2, 1.1, 1.0, 0.65]
     })
     try:
-        with st.expander("🛠 Debug Log"):
-            st.code(str(e))
-    except UnicodeEncodeError:
         with st.expander("Debug Log"):
             st.code(str(e))
+    except Exception:
+        st.text("Error occurred, but debug info could not be displayed.")
 
 # Plot Risk vs Return
 fig = px.scatter(
