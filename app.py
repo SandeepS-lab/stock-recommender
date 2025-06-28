@@ -84,26 +84,18 @@ def enhanced_stock_selection(risk_profile, investment_amount):
 # ----------------------------
 def optimize_sharpe_ratio(selected_stocks, investment_amount):
     tickers = selected_stocks['Stock'].map(TICKER_MAP).dropna().tolist()
-
     if len(tickers) < 2:
-        return selected_stocks  # Fallback
+        return selected_stocks
 
     try:
         raw_data = yf.download(tickers, period="1y", progress=False)
-
-        if raw_data is None or raw_data.empty:
-            return selected_stocks
 
         if isinstance(raw_data.columns, pd.MultiIndex):
             if 'Adj Close' not in raw_data.columns.get_level_values(0):
                 return selected_stocks
             data = raw_data['Adj Close'].dropna(axis=1, how='any')
         else:
-            if 'Adj Close' in raw_data:
-                data = raw_data[['Adj Close']].copy()
-                data.columns = [tickers[0]]
-            else:
-                return selected_stocks
+            return selected_stocks
 
         if data.shape[1] < 2:
             return selected_stocks
@@ -138,7 +130,7 @@ def simulate_earnings(amount, years):
 # ----------------------------
 st.set_page_config(page_title="Sharpe Optimizer Recommender", layout="centered")
 st.title("📊 Sharpe Optimized Stock Recommender")
-st.markdown("AI-powered stock selection based on client profile & Sharpe maximization.")
+st.markdown("AI-based stock selection powered by Sharpe Ratio and client profiling.")
 
 st.header("Client Profile")
 age = st.slider("Age", 18, 75, 35)
@@ -159,7 +151,7 @@ if st.button("Generate Recommendation"):
     if strategy == "Sharpe Optimized Portfolio (MPT)":
         optimized = optimize_sharpe_ratio(stocks, investment_amount)
         if optimized.equals(stocks):
-            st.warning("⚠️ Sharpe optimization could not be performed (not enough data). Showing enhanced scoring instead.")
+            st.warning("⚠️ Sharpe optimization could not be applied. Showing enhanced scoring.")
         else:
             stocks = optimized
 
@@ -171,7 +163,6 @@ if st.button("Generate Recommendation"):
     ax1.pie(stocks['Investment Amount (₹)'], labels=stocks['Stock'], autopct='%1.1f%%')
     ax1.set_title("Investment Allocation")
     st.pyplot(fig1)
-    plt.close(fig1)
 
     # Bar Chart
     fig2, ax2 = plt.subplots()
@@ -179,24 +170,44 @@ if st.button("Generate Recommendation"):
     ax2.set_title("Weight Distribution")
     ax2.set_ylabel("Weight %")
     st.pyplot(fig2)
-    plt.close(fig2)
+
+    # Risk vs Return Plot
+    st.markdown("### 📉 Risk vs Return (Stock Level)")
+    try:
+        tickers = stocks['Stock'].map(TICKER_MAP).tolist()
+        data = yf.download(tickers, period="1y", progress=False)['Adj Close'].dropna(axis=1, how='any')
+        returns = data.pct_change().dropna()
+
+        vol = returns.std() * np.sqrt(252)
+        exp_ret = returns.mean() * 252
+        sharpe = exp_ret / vol
+
+        fig3, ax3 = plt.subplots()
+        sc = ax3.scatter(vol, exp_ret, c=sharpe, cmap='coolwarm', s=100, edgecolors='k')
+        for i, ticker in enumerate(vol.index):
+            ax3.annotate(ticker.split('.')[0], (vol[i], exp_ret[i]), fontsize=8)
+        ax3.set_xlabel("Volatility (Std Dev)")
+        ax3.set_ylabel("Expected Return")
+        ax3.set_title("Risk vs Return (Sharpe by Color)")
+        plt.colorbar(sc, label='Sharpe Ratio')
+        st.pyplot(fig3)
+    except Exception as e:
+        st.error("Could not plot Risk vs Return chart.")
 
     # Earnings Forecast
     earnings = simulate_earnings(investment_amount, duration)
     st.markdown("### 📈 Projected Portfolio Value")
-    fig3, ax3 = plt.subplots()
+    fig4, ax4 = plt.subplots()
     for col in earnings.columns[1:]:
-        ax3.plot(earnings['Year'], earnings[col], label=col)
-    ax3.legend()
-    ax3.set_xlabel("Year")
-    ax3.set_ylabel("Value (₹)")
-    st.pyplot(fig3)
-    plt.close(fig3)
+        ax4.plot(earnings['Year'], earnings[col], label=col)
+    ax4.legend()
+    ax4.set_xlabel("Year")
+    ax4.set_ylabel("Value (₹)")
+    st.pyplot(fig4)
 
-    # Excel Download
+    # Excel Export
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         stocks.to_excel(writer, sheet_name='Portfolio', index=False)
         earnings.to_excel(writer, sheet_name='Earnings', index=False)
-    output.seek(0)
-    st.download_button("📥 Download Excel Report", data=output.read(), file_name="recommendation.xlsx")
+    st.download_button("📥 Download Excel Report", data=output.getvalue(), file_name="recommendation.xlsx")
