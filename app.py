@@ -128,11 +128,35 @@ def generate_ai_commentary(risk_profile, selected_stocks, duration):
     )
 
 # ----------------------------
+# AI Assistant (Sidebar)
+# ----------------------------
+
+def ai_assistant_response(user_query):
+    query = user_query.lower()
+    if "sharpe" in query:
+        return "Sharpe Ratio measures the risk-adjusted return of an asset. A higher Sharpe Ratio indicates better return for each unit of risk."
+    elif "zomato" in query:
+        return "Zomato was selected due to its aggressive growth potential, albeit with higher volatility and a lower Sharpe Ratio."
+    elif "beta" in query:
+        return "Beta indicates a stock's volatility compared to the market. A beta > 1 means more volatile than the market."
+    elif "roe" in query:
+        return "ROE (Return on Equity) measures how efficiently a company generates profit using shareholder equity."
+    else:
+        return "Sorry, I don't have a specific answer for that yet. Try asking about Sharpe Ratio, Zomato, Beta, or ROE."
+
+# ----------------------------
 # Streamlit UI
 # ----------------------------
 
 st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
 st.title("AI-Based Stock Recommender for Mutual Fund Managers")
+
+# Sidebar AI Chat Assistant
+st.sidebar.title("🤖 AI Assistant")
+user_question = st.sidebar.text_input("Ask me anything:")
+if user_question:
+    response = ai_assistant_response(user_question)
+    st.sidebar.write("💬", response)
 
 st.markdown("Get stock allocations based on your client's risk profile with earnings forecasts under multiple market conditions.")
 
