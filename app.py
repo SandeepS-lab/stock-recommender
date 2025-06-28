@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
+import plotly.express as px
 from io import BytesIO
 from pypfopt import EfficientFrontier, risk_models, expected_returns
 
@@ -64,7 +65,6 @@ def enhanced_stock_selection(risk_profile, investment_amount):
         (df['ROE'] / 100) * 0.4
     )
 
-    # Loosen risk profile filter
     if risk_profile == "Conservative":
         risk_pool = ["Conservative", "Moderate"]
     elif risk_profile == "Moderate":
@@ -77,7 +77,7 @@ def enhanced_stock_selection(risk_profile, investment_amount):
     filtered['Weight %'] = filtered['Score'] / filtered['Score'].sum() * 100
     filtered['Investment Amount (₹)'] = filtered['Weight %'] / 100 * investment_amount
 
-    return filtered[['Stock', 'Sector', 'Sharpe Ratio', 'Beta', 'P/E', 'ROE', 'Weight %', 'Investment Amount (₹)']].round(2)
+    return filtered.round(2)
 
 # ----------------------------
 # Sharpe Ratio Optimizer
@@ -89,14 +89,7 @@ def optimize_sharpe_ratio(selected_stocks, investment_amount):
 
     try:
         raw_data = yf.download(tickers, period="1y", progress=False)
-
-        if isinstance(raw_data.columns, pd.MultiIndex):
-            if 'Adj Close' not in raw_data.columns.get_level_values(0):
-                return selected_stocks
-            data = raw_data['Adj Close'].dropna(axis=1, how='any')
-        else:
-            return selected_stocks
-
+        data = raw_data['Adj Close'].dropna(axis=1, how='any')
         if data.shape[1] < 2:
             return selected_stocks
 
@@ -132,6 +125,7 @@ st.set_page_config(page_title="Sharpe Optimizer Recommender", layout="centered")
 st.title("📊 Sharpe Optimized Stock Recommender")
 st.markdown("AI-based stock selection powered by Sharpe Ratio and client profiling.")
 
+# UI Inputs
 st.header("Client Profile")
 age = st.slider("Age", 18, 75, 35)
 income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
@@ -146,8 +140,9 @@ if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile Identified: **{risk_profile}**")
 
-    stocks = enhanced_stock_selection(risk_profile, investment_amount)
+    debug_info = ""
 
+    stocks = enhanced_stock_selection(risk_profile, investment_amount)
     if strategy == "Sharpe Optimized Portfolio (MPT)":
         optimized = optimize_sharpe_ratio(stocks, investment_amount)
         if optimized.equals(stocks):
@@ -164,50 +159,61 @@ if st.button("Generate Recommendation"):
     ax1.set_title("Investment Allocation")
     st.pyplot(fig1)
 
-    # Bar Chart
-    fig2, ax2 = plt.subplots()
-    ax2.bar(stocks['Stock'], stocks['Weight %'], color='skyblue')
-    ax2.set_title("Weight Distribution")
-    ax2.set_ylabel("Weight %")
-    st.pyplot(fig2)
-
-    # Risk vs Return Plot
-    st.markdown("### 📉 Risk vs Return (Stock Level)")
+    # Risk vs Return using Plotly
+    st.markdown("### 📉 Risk vs Return (Interactive)")
     try:
         tickers = stocks['Stock'].map(TICKER_MAP).tolist()
-        data = yf.download(tickers, period="1y", progress=False)['Adj Close'].dropna(axis=1, how='any')
-        returns = data.pct_change().dropna()
+        raw_data = yf.download(tickers, period="1y", progress=False)
+        data = raw_data['Adj Close'].dropna(axis=1, how='any')
 
+        if data.shape[1] < 1:
+            raise ValueError("Not enough historical price data for selected stocks.")
+
+        returns = data.pct_change().dropna()
         vol = returns.std() * np.sqrt(252)
         exp_ret = returns.mean() * 252
         sharpe = exp_ret / vol
 
-        fig3, ax3 = plt.subplots()
-        sc = ax3.scatter(vol, exp_ret, c=sharpe, cmap='coolwarm', s=100, edgecolors='k')
-        for i, ticker in enumerate(vol.index):
-            ax3.annotate(ticker.split('.')[0], (vol[i], exp_ret[i]), fontsize=8)
-        ax3.set_xlabel("Volatility (Std Dev)")
-        ax3.set_ylabel("Expected Return")
-        ax3.set_title("Risk vs Return (Sharpe by Color)")
-        plt.colorbar(sc, label='Sharpe Ratio')
-        st.pyplot(fig3)
-    except Exception as e:
-        st.error("Could not plot Risk vs Return chart.")
+        plot_df = pd.DataFrame({
+            "Ticker": vol.index.str.replace(".NS", "", regex=False),
+            "Volatility": vol.values,
+            "Expected Return": exp_ret.values,
+            "Sharpe Ratio": sharpe.values
+        })
 
-    # Earnings Forecast
+        fig = px.scatter(
+            plot_df,
+            x="Volatility",
+            y="Expected Return",
+            color="Sharpe Ratio",
+            size="Sharpe Ratio",
+            hover_name="Ticker",
+            color_continuous_scale="RdYlGn",
+            title="Risk vs Return Bubble Chart"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        debug_info = str(e)
+        st.error("⚠️ Could not plot Risk vs Return chart due to an error.")
+
+    # Earnings Simulation
     earnings = simulate_earnings(investment_amount, duration)
     st.markdown("### 📈 Projected Portfolio Value")
-    fig4, ax4 = plt.subplots()
+    fig2, ax2 = plt.subplots()
     for col in earnings.columns[1:]:
-        ax4.plot(earnings['Year'], earnings[col], label=col)
-    ax4.legend()
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Value (₹)")
-    st.pyplot(fig4)
+        ax2.plot(earnings['Year'], earnings[col], label=col)
+    ax2.legend()
+    st.pyplot(fig2)
 
-    # Excel Export
+    # Excel Download
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         stocks.to_excel(writer, sheet_name='Portfolio', index=False)
         earnings.to_excel(writer, sheet_name='Earnings', index=False)
     st.download_button("📥 Download Excel Report", data=output.getvalue(), file_name="recommendation.xlsx")
+
+    # Debug log
+    if debug_info:
+        with st.expander("🛠 Show Debug Log"):
+            st.code(debug_info)
