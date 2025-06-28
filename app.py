@@ -3,6 +3,64 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
+import yfinance as yf
+
+# ----------------------------
+# Ticker Map for Live Data
+# ----------------------------
+TICKER_MAP = {
+    'TCS': 'TCS.NS',
+    'HDFC Bank': 'HDFCBANK.NS',
+    'Infosys': 'INFY.NS',
+    'Adani Enterprises': 'ADANIENT.NS',
+    'Adani Ent.': 'ADANIENT.NS',
+    'Zomato': 'ZOMATO.NS',
+    'Reliance Industries': 'RELIANCE.NS',
+    'Reliance': 'RELIANCE.NS',
+    'Bajaj Finance': 'BAJFINANCE.NS',
+    'Bajaj Fin.': 'BAJFINANCE.NS',
+    'IRCTC': 'IRCTC.NS'
+}
+
+# ----------------------------
+# Fetch Live Stock Data
+# ----------------------------
+
+def fetch_live_data(stock_df):
+    additional_data = []
+
+    for stock in stock_df['Stock']:
+        ticker_symbol = TICKER_MAP.get(stock)
+        if not ticker_symbol:
+            continue
+
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            info = ticker.info
+
+            additional_data.append({
+                'Stock': stock,
+                'Live Price (₹)': round(info.get('currentPrice', np.nan), 2),
+                '52W High (₹)': round(info.get('fiftyTwoWeekHigh', np.nan), 2),
+                '52W Low (₹)': round(info.get('fiftyTwoWeekLow', np.nan), 2),
+                'Dividend Yield (%)': round(info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0, 2),
+                'P/E Ratio': round(info.get('trailingPE', np.nan), 2),
+                'Market Cap (₹ Cr)': round(info.get('marketCap', 0) / 1e7, 2),
+                'Beta (Live)': round(info.get('beta', np.nan), 2)
+            })
+        except Exception:
+            additional_data.append({
+                'Stock': stock,
+                'Live Price (₹)': np.nan,
+                '52W High (₹)': np.nan,
+                '52W Low (₹)': np.nan,
+                'Dividend Yield (%)': np.nan,
+                'P/E Ratio': np.nan,
+                'Market Cap (₹ Cr)': np.nan,
+                'Beta (Live)': np.nan
+            })
+
+    return pd.DataFrame(additional_data)
 
 # ----------------------------
 # Risk Profiling Logic
@@ -183,7 +241,12 @@ if st.button("Generate Recommendation"):
         recommended_stocks = enhanced_stock_selection(risk_profile, investment_amount)
 
     if not recommended_stocks.empty:
-        st.markdown("### Recommended Stock Portfolio")
+        # Fetch and merge live data
+        with st.spinner("Fetching live stock data..."):
+            live_data = fetch_live_data(recommended_stocks)
+            recommended_stocks = pd.merge(recommended_stocks, live_data, on='Stock', how='left')
+
+        st.markdown("### Recommended Stock Portfolio (with Live Market Data)")
         st.dataframe(recommended_stocks, use_container_width=True)
 
         # Pie Chart
