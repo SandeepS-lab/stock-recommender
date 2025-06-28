@@ -74,10 +74,24 @@ def enhanced_stock_selection(risk_profile, investment_amount):
 # ----------------------------
 def optimize_sharpe_ratio(selected_stocks, investment_amount):
     tickers = selected_stocks['Stock'].map(TICKER_MAP).dropna().tolist()
-    data = yf.download(tickers, period="1y", progress=False)['Adj Close'].dropna(axis=1, how='any')
+    if len(tickers) < 2:
+        return selected_stocks  # Not enough for optimization
+
+    raw_data = yf.download(tickers, period="1y", progress=False)
+
+    # Handle both MultiIndex (multiple stocks) and flat index (single stock)
+    if isinstance(raw_data.columns, pd.MultiIndex):
+        if 'Adj Close' not in raw_data.columns.levels[0]:
+            return selected_stocks
+        data = raw_data['Adj Close'].dropna(axis=1, how='any')
+    else:
+        # Single ticker fallback
+        if raw_data.empty:
+            return selected_stocks
+        data = raw_data.dropna().to_frame(name=tickers[0])
 
     if data.shape[1] < 2:
-        return selected_stocks
+        return selected_stocks  # Not enough for MPT
 
     mu = expected_returns.mean_historical_return(data)
     S = risk_models.sample_cov(data)
@@ -157,7 +171,7 @@ if st.button("Generate Recommendation"):
     st.pyplot(fig3)
     plt.close(fig3)
 
-    # Download as Excel
+    # Excel Download
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         stocks.to_excel(writer, sheet_name='Portfolio', index=False)
