@@ -60,8 +60,12 @@ except Exception as e:
         "Expected Return": [0.12, 0.11, 0.09, 0.15],
         "Sharpe Ratio": [1.2, 1.1, 1.0, 0.65]
     })
-    with st.expander("\ud83d\udee0 Debug Log"):
-        st.code(str(e))
+    try:
+        with st.expander("🛠 Debug Log"):
+            st.code(str(e))
+    except UnicodeEncodeError:
+        with st.expander("Debug Log"):
+            st.code(str(e))
 
 # Plot Risk vs Return
 fig = px.scatter(
