@@ -3,25 +3,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
-import yfinance as yf
-
-# ----------------------------
-# Ticker Map for Yahoo Finance
-# ----------------------------
-TICKER_MAP = {
-    "TCS": "TCS.NS",
-    "HDFC Bank": "HDFCBANK.NS",
-    "Infosys": "INFY.NS",
-    "Adani Enterprises": "ADANIENT.NS",
-    "Zomato": "ZOMATO.NS",
-    "Reliance Industries": "RELIANCE.NS",
-    "Bajaj Finance": "BAJFINANCE.NS",
-    "IRCTC": "IRCTC.NS"
-}
 
 # ----------------------------
 # Risk Profiling Logic
 # ----------------------------
+
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -43,6 +29,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 # Basic Recommender
 # ----------------------------
+
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
         'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
@@ -78,8 +65,40 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
     return selected.round(2).drop(columns=['Score'])
 
 # ----------------------------
+# Enhanced Scoring Recommender
+# ----------------------------
+
+def enhanced_stock_selection(risk_profile, investment_amount):
+    data = {
+        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Ent.', 'Zomato', 'Reliance', 'Bajaj Fin.', 'IRCTC'],
+        'Sector': ['IT', 'Banking', 'IT', 'Infra', 'Tech', 'Energy', 'Finance', 'Travel'],
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
+        'P/E': [29, 21, 27, 42, 80, 31, 37, 65],
+        'ROE': [24, 18, 22, 12, 3, 20, 21, 17],
+        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
+                          'Moderate', 'Moderate', 'Aggressive']
+    }
+    df = pd.DataFrame(data)
+
+    df['Score'] = (
+        (df['Sharpe Ratio'] / df['Beta']) * 0.4 +
+        (1 / df['P/E']) * 0.2 +
+        (df['ROE'] / 100) * 0.4
+    )
+
+    filtered = df[df['Risk Category'] == risk_profile].copy()
+    filtered = filtered.sort_values(by='Score', ascending=False).head(4)
+
+    filtered['Weight %'] = filtered['Score'] / filtered['Score'].sum() * 100
+    filtered['Investment Amount (₹)'] = filtered['Weight %'] / 100 * investment_amount
+
+    return filtered[['Stock', 'Sector', 'Sharpe Ratio', 'Beta', 'P/E', 'ROE', 'Weight %', 'Investment Amount (₹)']].round(2)
+
+# ----------------------------
 # Earnings Simulation
 # ----------------------------
+
 def simulate_earnings(amount, years):
     rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
     result = pd.DataFrame({'Year': list(range(0, years + 1))})
@@ -88,158 +107,105 @@ def simulate_earnings(amount, years):
     return result
 
 # ----------------------------
-# Backtesting Logic
+# AI Commentary Generator
 # ----------------------------
-def backtest_portfolio(stocks, weights, start="2020-01-01", end=None):
-    if end is None:
-        end = pd.Timestamp.today().strftime('%Y-%m-%d')
 
-    tickers = [TICKER_MAP.get(stock) for stock in stocks]
-    valid = [t for t in tickers if t is not None]
+def generate_ai_commentary(risk_profile, selected_stocks, duration):
+    sector_col = 'Sector' if 'Sector' in selected_stocks.columns else 'Market Cap'
+    dominant_sector = selected_stocks[sector_col].mode().values[0]
 
-    if not valid:
-        return None, None, {"Error": "No valid tickers found for backtest."}, 0, 0, 0
+    risk_summary = {
+        "Conservative": "risk-averse with a focus on preserving capital and generating stable returns.",
+        "Moderate": "balanced, aiming for a mix of growth and income while managing moderate risk.",
+        "Aggressive": "growth-oriented, aiming for higher returns with an acceptance of market volatility."
+    }
 
-    try:
-        raw_data = yf.download(valid, start=start, end=end)
-        if 'Adj Close' in raw_data.columns:
-            data = raw_data['Adj Close']
-        else:
-            data = raw_data  # fallback if only one ticker
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-        data = data.dropna()
-        returns = data.pct_change().dropna()
-        weights = weights[:len(data.columns)]
-        portfolio_returns = (returns * weights).sum(axis=1)
-        cumulative = (1 + portfolio_returns).cumprod()
-
-        nifty = yf.download("^NSEI", start=start, end=end)['Adj Close'].pct_change().dropna()
-        nifty_cumulative = (1 + nifty).cumprod()
-
-        total_return = cumulative.iloc[-1] - 1
-        years = (pd.to_datetime(end) - pd.to_datetime(start)).days / 365.25
-        cagr = (cumulative.iloc[-1]) ** (1 / years) - 1
-        volatility = portfolio_returns.std() * np.sqrt(252)
-        sharpe = portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252)
-        drawdown = (cumulative / cumulative.cummax()) - 1
-        max_drawdown = drawdown.min()
-
-        expected_value = (1 + cagr) ** years
-
-        metrics = {
-            "CAGR": f"{cagr*100:.2f}%",
-            "Max Drawdown": f"{max_drawdown*100:.2f}%",
-            "Sharpe Ratio": f"{sharpe:.2f}",
-            "Volatility": f"{volatility*100:.2f}%",
-            "Expected Growth Multiple": f"{expected_value:.2f}x"
-        }
-        return cumulative, nifty_cumulative, metrics, cagr, sharpe, expected_value
-    except Exception as e:
-        return None, None, {"Error": str(e)}, 0, 0, 0
+    return (
+        f"Based on your risk profile of **{risk_profile}**, the recommended portfolio is "
+        f"{risk_summary[risk_profile]} The portfolio has a noticeable allocation to the "
+        f"**{dominant_sector}** sector. Over a {duration}-year horizon, this strategy aligns well with "
+        f"your investment goals and risk appetite."
+    )
 
 # ----------------------------
-# Streamlit App
+# Streamlit UI
 # ----------------------------
-st.set_page_config(page_title="AI Stock Recommender", layout="centered")
+
+st.set_page_config(page_title="AI-Based Stock Recommender", layout="centered")
 st.title("AI-Based Stock Recommender for Mutual Fund Managers")
 
-st.header("Client Profile")
-age = st.slider("Age", 18, 75, 35)
+st.markdown("Get stock allocations based on your client's risk profile with earnings forecasts under multiple market conditions.")
+
+st.header("Enter Client Profile")
+
+age = st.slider("Client Age", 18, 75, 35)
 income = st.number_input("Monthly Income (₹)", min_value=0, value=50000, step=5000)
-investment_amount = st.number_input("Investment Amount (₹)", min_value=1000, value=100000, step=10000)
-dependents = st.selectbox("Dependents", [0, 1, 2, 3, 4])
-qualification = st.selectbox("Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
+investment_amount = st.number_input("Total Investment Amount (₹)", min_value=1000, value=100000, step=10000)
+dependents = st.selectbox("Number of Dependents", [0, 1, 2, 3, 4])
+qualification = st.selectbox("Highest Qualification", ["Graduate", "Postgraduate", "Professional", "Other"])
 duration = st.slider("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.radio("Investment Type", ["Lumpsum", "SIP"])
-diversify = st.checkbox("Diversify across risk levels")
+diversify = st.checkbox("Diversify portfolio across all risk levels")
+strategy = st.radio("Recommendation Strategy", ["Basic AI", "Enhanced Scoring"])
 
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"Risk Profile: {risk_profile}")
+    st.info(f"Investment Allocation for ₹{investment_amount:,.0f}")
 
-    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
+    if strategy == "Basic AI":
+        recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
+    else:
+        recommended_stocks = enhanced_stock_selection(risk_profile, investment_amount)
 
     if not recommended_stocks.empty:
-        st.markdown("### Recommended Portfolio")
+        st.markdown("### Recommended Stock Portfolio")
         st.dataframe(recommended_stocks, use_container_width=True)
 
-        fig1, ax1 = plt.subplots()
-        ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
-        ax1.set_title("Investment Allocation")
-        st.pyplot(fig1)
+        # Pie Chart
+        if 'Investment Amount (₹)' in recommended_stocks.columns:
+            fig1, ax1 = plt.subplots()
+            ax1.pie(recommended_stocks['Investment Amount (₹)'], labels=recommended_stocks['Stock'], autopct='%1.1f%%')
+            ax1.set_title("Investment Allocation Breakdown")
+            st.pyplot(fig1)
 
-        fig_bar, ax_bar = plt.subplots()
-        ax_bar.bar(recommended_stocks['Stock'], recommended_stocks['Investment Amount (₹)'], color='skyblue')
-        ax_bar.set_ylabel("Investment Amount (₹)")
-        ax_bar.set_title("Investment Amount by Stock")
-        plt.xticks(rotation=45)
-        st.pyplot(fig_bar)
-
-        st.markdown("### Projected Earnings")
-        earnings = simulate_earnings(investment_amount, duration)
+        # Bar Chart
         fig2, ax2 = plt.subplots()
-        for col in earnings.columns[1:]:
-            ax2.plot(earnings['Year'], earnings[col], label=col)
-        ax2.set_title("Projected Growth")
-        ax2.legend()
+        ax2.bar(recommended_stocks['Stock'], recommended_stocks['Weight %'], color='skyblue')
+        ax2.set_title("Portfolio Weights by Stock")
+        ax2.set_ylabel("Weight (%)")
+        ax2.set_xticks(range(len(recommended_stocks['Stock'])))
+        ax2.set_xticklabels(recommended_stocks['Stock'], rotation=45)
         st.pyplot(fig2)
 
+        # Line Chart
+        st.markdown("### Projected Earnings Scenarios")
+        earnings = simulate_earnings(investment_amount, duration)
+        fig3, ax3 = plt.subplots()
+        for col in earnings.columns[1:]:
+            ax3.plot(earnings['Year'], earnings[col], label=col)
+        ax3.set_title("Projected Portfolio Value Over Time")
+        ax3.set_ylabel("Portfolio Value (₹)")
+        ax3.set_xlabel("Year")
+        ax3.legend()
+        st.pyplot(fig3)
+
+        # Excel Export
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             recommended_stocks.to_excel(writer, sheet_name='Portfolio', index=False)
             earnings.to_excel(writer, sheet_name='Projections', index=False)
-        st.download_button("Download Excel Report", output.getvalue(), file_name="portfolio.xlsx")
+        st.download_button(
+            label="Download Excel Report",
+            data=output.getvalue(),
+            file_name="stock_recommendation_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
-        st.markdown("### Backtest Results")
-        tickers = recommended_stocks['Stock'].tolist()
-        weights = recommended_stocks['Weight %'].values / 100
-        cum_ret, nifty_ret, metrics, cagr, sharpe, expected_value = backtest_portfolio(tickers, weights)
+        # AI Commentary
+        st.markdown("### 🤖 AI-Generated Commentary")
+        commentary = generate_ai_commentary(risk_profile, recommended_stocks, duration)
+        st.info(commentary)
 
-        if cum_ret is not None:
-            fig_bt, ax_bt = plt.subplots()
-            ax_bt.plot(cum_ret.index, cum_ret, label="Portfolio")
-            ax_bt.plot(nifty_ret.index, nifty_ret, label="NIFTY 50", linestyle='--')
-            ax_bt.set_title("Cumulative Returns")
-            ax_bt.legend()
-            st.pyplot(fig_bt)
-
-            st.write("#### Backtest Summary")
-            st.write(f"**CAGR**: {cagr * 100:.2f}%")
-            st.write(f"**Sharpe Ratio**: {sharpe:.2f}")
-            st.write(f"**Expected Portfolio Value in {duration} Years**: ₹{investment_amount * ((1 + cagr) ** duration):,.0f}")
-
-            st.markdown("### Interpretation (AI Commentary)")
-            interpretation = f"""
-            Based on historical data, your selected portfolio has delivered a **CAGR of {cagr*100:.2f}%** over the last few years.
-            If similar conditions persist, your ₹{investment_amount:,.0f} investment could grow to approximately ₹{investment_amount * ((1 + cagr) ** duration):,.0f} in {duration} years.
-
-            A **Sharpe Ratio of {sharpe:.2f}** indicates that the portfolio has offered attractive risk-adjusted returns.
-            This suggests a healthy balance of reward relative to volatility, making it suitable for your current risk profile.
-            """
-            st.info(interpretation)
-
-            st.table(metrics)
-
-            # --- Sector Allocation Chart ---
-            if 'Sector' in recommended_stocks.columns:
-                st.markdown("### Sector Allocation")
-                sector_alloc = recommended_stocks.groupby('Sector')['Investment Amount (₹)'].sum()
-                fig_sec, ax_sec = plt.subplots()
-                ax_sec.pie(sector_alloc, labels=sector_alloc.index, autopct='%1.1f%%')
-                ax_sec.set_title("Sector Exposure")
-                st.pyplot(fig_sec)
-
-            # --- NIFTY Alpha ---
-            nifty_cagr = (nifty_ret.iloc[-1]) ** (1 / duration) - 1
-            alpha = cagr - nifty_cagr
-            st.write(f"**Portfolio Alpha over NIFTY**: {alpha*100:.2f}%")
-
-            # --- Value at Risk (VaR) ---
-            portfolio_returns = cum_ret.pct_change().dropna()
-            VaR_95 = portfolio_returns.quantile(0.05)
-            st.write(f"**95% Value-at-Risk (1 Day)**: ₹{(investment_amount * VaR_95):,.0f}")
-        else:
-            st.warning(metrics.get("Error", "Backtest failed."))
     else:
-        st.warning("No suitable stocks found.")
+        st.warning("No suitable stocks found for this risk profile.")
