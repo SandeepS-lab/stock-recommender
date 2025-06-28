@@ -52,58 +52,60 @@ def enhanced_stock_selection(risk_profile, investment_amount):
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
         'P/E': [29, 21, 27, 42, 80, 31, 37, 65],
         'ROE': [24, 18, 22, 12, 3, 20, 21, 17],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
+        'Risk Category': ['Conservative', 'Conservative', 'Moderate', 'Aggressive', 'Aggressive',
                           'Moderate', 'Moderate', 'Aggressive']
     }
 
     df = pd.DataFrame(data)
+
     df['Score'] = (
         (df['Sharpe Ratio'] / df['Beta']) * 0.4 +
         (1 / df['P/E']) * 0.2 +
         (df['ROE'] / 100) * 0.4
     )
-    filtered = df[df['Risk Category'] == risk_profile].copy()
-    filtered = filtered.sort_values(by='Score', ascending=False).head(5)
+
+    # Loosen risk profile filter
+    if risk_profile == "Conservative":
+        risk_pool = ["Conservative", "Moderate"]
+    elif risk_profile == "Moderate":
+        risk_pool = ["Moderate", "Aggressive"]
+    else:
+        risk_pool = ["Aggressive", "Moderate"]
+
+    filtered = df[df['Risk Category'].isin(risk_pool)].copy()
+    filtered = filtered.sort_values(by='Score', ascending=False).head(7)
     filtered['Weight %'] = filtered['Score'] / filtered['Score'].sum() * 100
     filtered['Investment Amount (₹)'] = filtered['Weight %'] / 100 * investment_amount
 
     return filtered[['Stock', 'Sector', 'Sharpe Ratio', 'Beta', 'P/E', 'ROE', 'Weight %', 'Investment Amount (₹)']].round(2)
 
 # ----------------------------
-# Sharpe Ratio Optimizer with robust handling
+# Sharpe Ratio Optimizer
 # ----------------------------
 def optimize_sharpe_ratio(selected_stocks, investment_amount):
     tickers = selected_stocks['Stock'].map(TICKER_MAP).dropna().tolist()
-    
+
     if len(tickers) < 2:
-        st.warning("Not enough tickers for Sharpe optimization.")
-        return selected_stocks
+        return selected_stocks  # Fallback
 
     try:
         raw_data = yf.download(tickers, period="1y", progress=False)
 
         if raw_data is None or raw_data.empty:
-            st.error("Could not fetch data from Yahoo Finance.")
             return selected_stocks
 
-        # If data is MultiIndex (multiple tickers)
         if isinstance(raw_data.columns, pd.MultiIndex):
             if 'Adj Close' not in raw_data.columns.get_level_values(0):
-                st.error("'Adj Close' not found in downloaded data.")
                 return selected_stocks
             data = raw_data['Adj Close'].dropna(axis=1, how='any')
-
         else:
-            # Single ticker fallback
-            if 'Adj Close' in raw_data.columns:
+            if 'Adj Close' in raw_data:
                 data = raw_data[['Adj Close']].copy()
                 data.columns = [tickers[0]]
             else:
-                st.warning("No 'Adj Close' in data.")
                 return selected_stocks
 
         if data.shape[1] < 2:
-            st.warning("Less than 2 valid stocks with historical data.")
             return selected_stocks
 
         mu = expected_returns.mean_historical_return(data)
@@ -118,8 +120,7 @@ def optimize_sharpe_ratio(selected_stocks, investment_amount):
 
         return selected_stocks.round(2)
 
-    except Exception as e:
-        st.error(f"Sharpe optimization failed: {str(e)}")
+    except Exception:
         return selected_stocks
 
 # ----------------------------
@@ -156,7 +157,11 @@ if st.button("Generate Recommendation"):
     stocks = enhanced_stock_selection(risk_profile, investment_amount)
 
     if strategy == "Sharpe Optimized Portfolio (MPT)":
-        stocks = optimize_sharpe_ratio(stocks, investment_amount)
+        optimized = optimize_sharpe_ratio(stocks, investment_amount)
+        if optimized.equals(stocks):
+            st.warning("⚠️ Sharpe optimization could not be performed (not enough data). Showing enhanced scoring instead.")
+        else:
+            stocks = optimized
 
     st.markdown("### 📌 Portfolio Recommendation")
     st.dataframe(stocks, use_container_width=True)
