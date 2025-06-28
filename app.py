@@ -70,40 +70,57 @@ def enhanced_stock_selection(risk_profile, investment_amount):
     return filtered[['Stock', 'Sector', 'Sharpe Ratio', 'Beta', 'P/E', 'ROE', 'Weight %', 'Investment Amount (₹)']].round(2)
 
 # ----------------------------
-# Sharpe Ratio Optimizer
+# Sharpe Ratio Optimizer with robust handling
 # ----------------------------
 def optimize_sharpe_ratio(selected_stocks, investment_amount):
     tickers = selected_stocks['Stock'].map(TICKER_MAP).dropna().tolist()
+    
     if len(tickers) < 2:
-        return selected_stocks  # Not enough for optimization
+        st.warning("Not enough tickers for Sharpe optimization.")
+        return selected_stocks
 
-    raw_data = yf.download(tickers, period="1y", progress=False)
+    try:
+        raw_data = yf.download(tickers, period="1y", progress=False)
 
-    # Handle both MultiIndex (multiple stocks) and flat index (single stock)
-    if isinstance(raw_data.columns, pd.MultiIndex):
-        if 'Adj Close' not in raw_data.columns.levels[0]:
+        if raw_data is None or raw_data.empty:
+            st.error("Could not fetch data from Yahoo Finance.")
             return selected_stocks
-        data = raw_data['Adj Close'].dropna(axis=1, how='any')
-    else:
-        # Single ticker fallback
-        if raw_data.empty:
+
+        # If data is MultiIndex (multiple tickers)
+        if isinstance(raw_data.columns, pd.MultiIndex):
+            if 'Adj Close' not in raw_data.columns.get_level_values(0):
+                st.error("'Adj Close' not found in downloaded data.")
+                return selected_stocks
+            data = raw_data['Adj Close'].dropna(axis=1, how='any')
+
+        else:
+            # Single ticker fallback
+            if 'Adj Close' in raw_data.columns:
+                data = raw_data[['Adj Close']].copy()
+                data.columns = [tickers[0]]
+            else:
+                st.warning("No 'Adj Close' in data.")
+                return selected_stocks
+
+        if data.shape[1] < 2:
+            st.warning("Less than 2 valid stocks with historical data.")
             return selected_stocks
-        data = raw_data.dropna().to_frame(name=tickers[0])
 
-    if data.shape[1] < 2:
-        return selected_stocks  # Not enough for MPT
+        mu = expected_returns.mean_historical_return(data)
+        S = risk_models.sample_cov(data)
+        ef = EfficientFrontier(mu, S)
+        weights = ef.max_sharpe()
+        cleaned_weights = ef.clean_weights()
 
-    mu = expected_returns.mean_historical_return(data)
-    S = risk_models.sample_cov(data)
-    ef = EfficientFrontier(mu, S)
-    weights = ef.max_sharpe()
-    cleaned_weights = ef.clean_weights()
+        selected_stocks = selected_stocks[selected_stocks['Stock'].map(TICKER_MAP).isin(cleaned_weights.keys())].copy()
+        selected_stocks['Weight %'] = selected_stocks['Stock'].map(cleaned_weights).fillna(0) * 100
+        selected_stocks['Investment Amount (₹)'] = selected_stocks['Weight %'] / 100 * investment_amount
 
-    selected_stocks = selected_stocks[selected_stocks['Stock'].map(TICKER_MAP).isin(cleaned_weights.keys())].copy()
-    selected_stocks['Weight %'] = selected_stocks['Stock'].map(cleaned_weights).fillna(0) * 100
-    selected_stocks['Investment Amount (₹)'] = selected_stocks['Weight %'] / 100 * investment_amount
+        return selected_stocks.round(2)
 
-    return selected_stocks.round(2)
+    except Exception as e:
+        st.error(f"Sharpe optimization failed: {str(e)}")
+        return selected_stocks
 
 # ----------------------------
 # Earnings Simulation
