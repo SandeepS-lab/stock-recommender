@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import BytesIO
 import yfinance as yf
 
 # ----------------------------
@@ -13,31 +12,24 @@ TICKER_MAP = {
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Adani Ent.': 'ADANIENT.NS',
     'Zomato': 'ZOMATO.NS',
     'Reliance Industries': 'RELIANCE.NS',
-    'Reliance': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
-    'Bajaj Fin.': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
 }
 
 # ----------------------------
 # Fetch Live Stock Data
 # ----------------------------
-
 def fetch_live_data(stock_df):
     additional_data = []
-
     for stock in stock_df['Stock']:
         ticker_symbol = TICKER_MAP.get(stock)
         if not ticker_symbol:
             continue
-
         try:
             ticker = yf.Ticker(ticker_symbol)
             info = ticker.info
-
             additional_data.append({
                 'Stock': stock,
                 'Live Price (₹)': round(info.get('currentPrice', np.nan), 2),
@@ -59,13 +51,11 @@ def fetch_live_data(stock_df):
                 'Market Cap (₹ Cr)': np.nan,
                 'Beta (Live)': np.nan
             })
-
     return pd.DataFrame(additional_data)
 
 # ----------------------------
 # Risk Profiling Logic
 # ----------------------------
-
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -87,7 +77,6 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 # Basic Recommender
 # ----------------------------
-
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
         'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
@@ -125,7 +114,6 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
-
 def simulate_earnings(amount, years):
     rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
     result = pd.DataFrame({'Year': list(range(0, years + 1))})
@@ -136,41 +124,59 @@ def simulate_earnings(amount, years):
 # ----------------------------
 # Monte Carlo Simulation
 # ----------------------------
-
 def monte_carlo_simulation(initial_investment, expected_return, volatility, years, n_simulations=500):
     np.random.seed(42)
     simulations = np.zeros((n_simulations, years + 1))
     simulations[:, 0] = initial_investment
-
     for i in range(1, years + 1):
         random_returns = np.random.normal(loc=expected_return, scale=volatility, size=n_simulations)
         simulations[:, i] = simulations[:, i - 1] * (1 + random_returns)
-
     return simulations
 
 # ----------------------------
-# Monte Carlo Plot Integration (Insert after earnings simulation)
+# Streamlit UI
 # ----------------------------
+st.title("📊 AI-Based Stock Recommender for Fund Managers")
 
+st.sidebar.header("Client Profile Input")
+age = st.sidebar.number_input("Age", 18, 100, 30)
+income = st.sidebar.number_input("Monthly Income (₹)", 10000, 200000, 50000, step=5000)
+dependents = st.sidebar.number_input("Number of Dependents", 0, 10, 2)
+qualification = st.sidebar.selectbox("Highest Qualification", ["Undergraduate", "Postgraduate", "Professional"])
+duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
+investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
+investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
+
+# ----------------------------
+# Generate Results
+# ----------------------------
 if st.button("Generate Recommendation"):
-    # ... (other logic above)
-    # Assume `recommended_stocks`, `investment_amount`, `duration` already computed
+    risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
+    st.success(f"🧠 Risk Profile: **{risk_profile}**")
 
-    st.markdown("### Monte Carlo Simulation (500 Scenarios)")
+    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=True)
+    st.subheader("📈 Recommended Portfolio")
+    st.dataframe(recommended_stocks)
 
+    live_data = fetch_live_data(recommended_stocks)
+    st.subheader("📉 Live Stock Data (via yfinance)")
+    st.dataframe(live_data)
+
+    st.subheader("📈 Projected Earnings Scenarios")
+    earning_df = simulate_earnings(investment_amount, duration)
+    st.line_chart(earning_df.set_index("Year"))
+
+    st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-
     mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
 
     fig4, ax4 = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
         ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
-
     median = np.percentile(mc_results, 50, axis=0)
     p10 = np.percentile(mc_results, 10, axis=0)
     p90 = np.percentile(mc_results, 90, axis=0)
-
     ax4.plot(median, color='blue', label='Median Projection')
     ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
     ax4.set_title("Monte Carlo Simulation of Portfolio Value")
