@@ -149,32 +149,32 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Streamlit UI (Only MC Integration shown below)
+# Monte Carlo Plot Integration (Insert after earnings simulation)
 # ----------------------------
 
-# Assume this is part of your existing Streamlit code where results are shown
-# Add this **after** showing the earnings simulation line chart:
+if st.button("Generate Recommendation"):
+    # ... (other logic above)
+    # Assume `recommended_stocks`, `investment_amount`, `duration` already computed
 
-        # Monte Carlo Simulation
-        st.markdown("### Monte Carlo Simulation (500 Scenarios)")
+    st.markdown("### Monte Carlo Simulation (500 Scenarios)")
 
-        avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
-        avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
+    avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
+    avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
 
-        mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
+    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
 
-        fig4, ax4 = plt.subplots(figsize=(10, 5))
-        for i in range(min(100, mc_results.shape[0])):
-            ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
+    fig4, ax4 = plt.subplots(figsize=(10, 5))
+    for i in range(min(100, mc_results.shape[0])):
+        ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
 
-        median = np.percentile(mc_results, 50, axis=0)
-        p10 = np.percentile(mc_results, 10, axis=0)
-        p90 = np.percentile(mc_results, 90, axis=0)
+    median = np.percentile(mc_results, 50, axis=0)
+    p10 = np.percentile(mc_results, 10, axis=0)
+    p90 = np.percentile(mc_results, 90, axis=0)
 
-        ax4.plot(median, color='blue', label='Median Projection')
-        ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
-        ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-        ax4.set_xlabel("Year")
-        ax4.set_ylabel("Portfolio Value (₹)")
-        ax4.legend()
-        st.pyplot(fig4)
+    ax4.plot(median, color='blue', label='Median Projection')
+    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
+    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
+    ax4.set_xlabel("Year")
+    ax4.set_ylabel("Portfolio Value (₹)")
+    ax4.legend()
+    st.pyplot(fig4)
