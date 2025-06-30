@@ -135,20 +135,24 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting for 3 Months
+# 3-Month Backtest with Failure Logs
 # ----------------------------
 def run_backtest(stocks_df):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=90)
 
     results = []
+    failed_stocks = []
+
     for stock in stocks_df['Stock']:
         ticker = TICKER_MAP.get(stock)
         if not ticker:
+            failed_stocks.append(stock + " (not mapped)")
             continue
         try:
-            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
-            if data.empty:
+            data = yf.download(ticker, start=start_date, end=end_date, interval="1d", auto_adjust=True, progress=False)
+            if data.empty or 'Close' not in data.columns:
+                failed_stocks.append(stock)
                 continue
             start_price = data['Close'].iloc[0]
             end_price = data['Close'].iloc[-1]
@@ -164,9 +168,10 @@ def run_backtest(stocks_df):
                 'Sharpe Ratio': round(sharpe, 2)
             })
         except Exception:
+            failed_stocks.append(stock)
             continue
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), failed_stocks
 
 # ----------------------------
 # Streamlit UI
@@ -198,11 +203,11 @@ if st.button("Generate Recommendation"):
     st.dataframe(live_data)
 
     st.subheader("📊 3-Month Backtest Results")
-    backtest_df = run_backtest(recommended_stocks)
+    backtest_df, failed = run_backtest(recommended_stocks)
     if not backtest_df.empty:
         st.dataframe(backtest_df)
-    else:
-        st.warning("Backtest data unavailable for selected stocks.")
+    if failed:
+        st.warning("⚠️ Backtest failed for: " + ", ".join(failed))
 
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
