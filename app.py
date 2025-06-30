@@ -16,7 +16,6 @@ TICKER_MAP = {
     'Reliance Industries': 'RELIANCE',
     'Bajaj Finance': 'BAJFINANCE',
     'IRCTC': 'IRCTC'
-    # 'Zomato': 'ZOMATO' -> Explicitly removed due to data issues
 }
 
 # ----------------------------
@@ -103,7 +102,7 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
 # ----------------------------
 def backtest_portfolio(stocks_df):
     end = date.today()
-    start = end - timedelta(days=180)
+    start = end - timedelta(days=90)  # 3 months window
 
     price_data = {}
     weights = {}
@@ -137,9 +136,12 @@ def backtest_portfolio(stocks_df):
     returns = portfolio.pct_change().dropna()
     cumulative = (1 + returns).cumprod()
 
+    months_elapsed = (df_prices.index[-1] - df_prices.index[0]).days / 30.0
+    annualized_return = (cumulative.iloc[-1] ** (12 / months_elapsed) - 1) * 100
+
     stats = {
         "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
-        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / 0.5) - 1) * 100, 2),
+        "Annualized Return (%)": round(annualized_return, 2),
         "Volatility (%)": round(returns.std() * np.sqrt(252) * 100, 2),
         "Sharpe Ratio": round(returns.mean() / returns.std() * np.sqrt(252), 2)
     }
@@ -181,21 +183,4 @@ if st.button("Generate Recommendation"):
     for i in range(min(100, mc_results.shape[0])):
         ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
     median = np.percentile(mc_results, 50, axis=0)
-    p10 = np.percentile(mc_results, 10, axis=0)
-    p90 = np.percentile(mc_results, 90, axis=0)
-    ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
-    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Portfolio Value (₹)")
-    ax4.legend()
-    st.pyplot(fig4)
-
-    st.subheader("📊 Backtesting (Past 6 Months | NSE Only)")
-    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks)
-    if bt_cumulative is None:
-        st.warning(bt_stats)
-    else:
-        st.line_chart(bt_cumulative.rename("Indexed Portfolio Value"))
-        st.markdown("**📌 Backtest Metrics:**")
-        st.write(bt_stats)
+    p10 = np.percentile(mc_results
