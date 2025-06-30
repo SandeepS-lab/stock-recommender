@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
+import time
 from datetime import datetime
 
 # ----------------------------
@@ -18,6 +19,19 @@ TICKER_MAP = {
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
 }
+
+# ----------------------------
+# Safe Download Helper
+# ----------------------------
+def safe_download(ticker, start, end, retries=3, delay=2):
+    for _ in range(retries):
+        try:
+            data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)['Adj Close']
+            if not data.empty:
+                return data
+        except:
+            time.sleep(delay)
+    return pd.Series(dtype='float64')
 
 # ----------------------------
 # Fetch Live Stock Data
@@ -41,7 +55,7 @@ def fetch_live_data(stock_df):
                 'Market Cap (₹ Cr)': round(info.get('marketCap', 0) / 1e7, 2),
                 'Beta (Live)': round(info.get('beta', np.nan), 2)
             })
-        except Exception:
+        except:
             additional_data.append({
                 'Stock': stock,
                 'Live Price (₹)': np.nan,
@@ -135,9 +149,9 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting (6 months fallback)
+# Backtesting
 # ----------------------------
-def backtest_portfolio(stocks_df):
+def backtest_portfolio(stocks_df, investment_amount):
     st.subheader("📊 Backtesting Over Past 6 Months")
     end = pd.Timestamp.today()
     start = end - pd.DateOffset(months=6)
@@ -149,14 +163,10 @@ def backtest_portfolio(stocks_df):
         ticker_symbol = TICKER_MAP.get(stock)
         if not ticker_symbol:
             continue
-        try:
-            data = yf.download(ticker_symbol, start=start, end=end, auto_adjust=False, progress=False)['Adj Close']
-            if data.isnull().all():
-                continue
+        data = safe_download(ticker_symbol, start, end)
+        if not data.empty:
             price_data[stock] = data
             weights[stock] = row['Weight %'] / 100
-        except Exception:
-            continue
 
     if not price_data:
         st.warning("No valid historical data available.")
@@ -206,7 +216,7 @@ if st.button("Generate Recommendation"):
     st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
+    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
 
     fig4, ax4 = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
@@ -222,5 +232,4 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
-    # Backtest Last 6 Months
-    backtest_portfolio(recommended_stocks)
+    backtest_portfolio(recommended_stocks, investment_amount)
