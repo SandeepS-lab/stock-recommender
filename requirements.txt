@@ -10,3 +10,4 @@ cvxpy
 scikit-learn
 scipy
 nsepy
+nsepython
