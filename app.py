@@ -6,7 +6,7 @@ from nsepy import get_history
 from datetime import date, timedelta
 
 # ----------------------------
-# Ticker Map for NSE Data
+# Ticker Map (NSE symbols)
 # ----------------------------
 TICKER_MAP = {
     'TCS': 'TCS',
@@ -99,59 +99,49 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting using NSE only
+# NSE-Based Backtest
 # ----------------------------
-def backtest_portfolio(stocks_df):
+def backtest_portfolio(stocks_df, investment_amount):
+    st.subheader("📊 Backtesting Over Past 6 Months")
     end = date.today()
-    start = end - timedelta(days=180)  # 6 months
+    start = end - timedelta(days=182)
     price_data = {}
     weights = {}
 
     for _, row in stocks_df.iterrows():
-        stock = row['Stock']
-        nse_symbol = TICKER_MAP.get(stock)
-
-        if not nse_symbol:
-            continue
-
+        symbol = TICKER_MAP.get(row['Stock'])
         try:
-            data = get_history(symbol=nse_symbol, start=start, end=end)['Close']
-            if data.empty:
+            df = get_history(symbol=symbol, start=start, end=end)
+            series = df['Close']
+            if series.isnull().all() or len(series) < 30:
                 continue
-            price_data[stock] = data
-            weights[stock] = row['Weight %'] / 100
-        except Exception as e:
-            print(f"Skipping {stock} due to error: {e}")
+            price_data[row['Stock']] = series
+            weights[row['Stock']] = row['Weight %'] / 100
+        except Exception:
             continue
 
     if not price_data:
-        return None, "No valid NSE data available."
+        st.warning("No valid NSE data available for selected stocks.")
+        return
 
-    prices = pd.DataFrame(price_data).dropna()
-    if prices.empty or prices.shape[1] < 2:
-        return None, "Insufficient data for backtesting."
+    df_prices = pd.DataFrame(price_data).dropna()
+    if df_prices.empty:
+        st.warning("Insufficient data for backtesting.")
+        return
 
-    returns = prices.pct_change().dropna()
-    weights = {k: v / sum(weights.values()) for k, v in weights.items()}
-    portfolio_returns = returns @ pd.Series(weights)
-    cumulative = (1 + portfolio_returns).cumprod()
-
-    days = (prices.index[-1] - prices.index[0]).days
-    years = days / 365.0
-
-    stats = {
-        "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
-        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / years) - 1) * 100, 2),
-        "Volatility (%)": round(portfolio_returns.std() * np.sqrt(252) * 100, 2),
-        "Sharpe Ratio": round(portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252), 2)
-    }
-
-    return cumulative, stats
+    normalized = df_prices / df_prices.iloc[0]
+    portfolio = normalized.dot(pd.Series(weights)) * investment_amount
+    fig, ax = plt.subplots()
+    ax.plot(portfolio.index, portfolio, label='Portfolio Value')
+    ax.set_title("Portfolio Value Over 6 Months")
+    ax.set_ylabel("Value (₹)")
+    ax.legend()
+    st.pyplot(fig)
 
 # ----------------------------
 # Streamlit UI
 # ----------------------------
-st.title("📊 AI-Based Stock Recommender for Fund Managers")
+st.title("📊 AI-Based Stock Recommender (NSE Data Only)")
 
 st.sidebar.header("Client Profile Input")
 age = st.sidebar.number_input("Age", 18, 100, 30)
@@ -162,9 +152,6 @@ duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
 
-# ----------------------------
-# Generate Results
-# ----------------------------
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
@@ -182,25 +169,18 @@ if st.button("Generate Recommendation"):
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
     mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
 
-    fig4, ax4 = plt.subplots(figsize=(10, 5))
+    fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
-        ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
+        ax_mc.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
     median = np.percentile(mc_results, 50, axis=0)
     p10 = np.percentile(mc_results, 10, axis=0)
     p90 = np.percentile(mc_results, 90, axis=0)
-    ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2)
-    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Portfolio Value (₹)")
-    ax4.legend()
-    st.pyplot(fig4)
+    ax_mc.plot(median, color='blue', label='Median Projection')
+    ax_mc.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence')
+    ax_mc.set_title("Monte Carlo Simulation")
+    ax_mc.set_xlabel("Year")
+    ax_mc.set_ylabel("Portfolio Value (₹)")
+    ax_mc.legend()
+    st.pyplot(fig_mc)
 
-    st.subheader("📊 Backtesting (NSE Only - 6M)")
-    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks)
-    if bt_cumulative is None:
-        st.warning(bt_stats)
-    else:
-        st.line_chart(bt_cumulative.rename("Indexed Portfolio Value"))
-        st.markdown("**📌 Backtest Metrics:**")
-        st.write(bt_stats)
+    backtest_portfolio(recommended_stocks, investment_amount)
