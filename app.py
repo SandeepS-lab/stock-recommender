@@ -4,34 +4,36 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from datetime import datetime, timedelta
+from nsepy import get_history
 
 # ----------------------------
-# Ticker Map for Live Data
+# Ticker Map
 # ----------------------------
 TICKER_MAP = {
-    'TCS': 'TCS.NS',
-    'HDFC Bank': 'HDFCBANK.NS',
-    'Infosys': 'INFY.NS',
-    'Adani Enterprises': 'ADANIENT.NS',
-    'Eternal Limited': 'ETERNAL.NS',
-    'Reliance Industries': 'RELIANCE.NS',
-    'Bajaj Finance': 'BAJFINANCE.NS',
-    'IRCTC': 'IRCTC.NS'
+    'TCS': 'TCS',
+    'HDFC Bank': 'HDFCBANK',
+    'Infosys': 'INFY',
+    'Adani Enterprises': 'ADANIENT',
+    'Eternal Limited': 'ETERNAL',
+    'Reliance Industries': 'RELIANCE',
+    'Bajaj Finance': 'BAJFINANCE',
+    'IRCTC': 'IRCTC'
 }
 
+YFINANCE_MAP = {k: v + '.NS' for k, v in TICKER_MAP.items()}
+
 # ----------------------------
-# Fetch Live Stock Data
+# Live Stock Data (yfinance)
 # ----------------------------
 def fetch_live_data(stock_df):
-    additional_data = []
+    data = []
     for stock in stock_df['Stock']:
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
+        ticker = YFINANCE_MAP.get(stock)
+        if not ticker:
             continue
         try:
-            ticker = yf.Ticker(ticker_symbol)
-            info = ticker.info
-            additional_data.append({
+            info = yf.Ticker(ticker).info
+            data.append({
                 'Stock': stock,
                 'Live Price (₹)': round(info.get('currentPrice', np.nan), 2),
                 '52W High (₹)': round(info.get('fiftyTwoWeekHigh', np.nan), 2),
@@ -41,8 +43,8 @@ def fetch_live_data(stock_df):
                 'Market Cap (₹ Cr)': round(info.get('marketCap', 0) / 1e7, 2),
                 'Beta (Live)': round(info.get('beta', np.nan), 2)
             })
-        except Exception:
-            additional_data.append({
+        except:
+            data.append({
                 'Stock': stock,
                 'Live Price (₹)': np.nan,
                 '52W High (₹)': np.nan,
@@ -52,10 +54,10 @@ def fetch_live_data(stock_df):
                 'Market Cap (₹ Cr)': np.nan,
                 'Beta (Live)': np.nan
             })
-    return pd.DataFrame(additional_data)
+    return pd.DataFrame(data)
 
 # ----------------------------
-# Risk Profiling Logic
+# Risk Profiling
 # ----------------------------
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
@@ -76,10 +78,10 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Basic Recommender
+# Recommender
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
-    data = {
+    df = pd.DataFrame({
         'Stock': list(TICKER_MAP.keys()),
         'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
@@ -87,8 +89,7 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
         'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
                           'Moderate', 'Moderate', 'Aggressive']
-    }
-    df = pd.DataFrame(data)
+    })
 
     if diversify:
         portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
@@ -99,128 +100,121 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
             temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
             temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
             dfs.append(temp)
-        selected = pd.concat(dfs)
+        result = pd.concat(dfs)
     else:
-        selected = df[df['Risk Category'] == risk_profile].copy()
-        if len(selected) < 5:
-            others = df[df['Risk Category'] != risk_profile]
-            selected = pd.concat([selected, others.head(5 - len(selected))])
-        selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
-        selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
-        selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
+        result = df[df['Risk Category'] == risk_profile].copy()
+        if len(result) < 5:
+            result = pd.concat([result, df[df['Risk Category'] != risk_profile].head(5 - len(result))])
+        result['Score'] = result['Sharpe Ratio'] / result['Beta']
+        result['Weight %'] = result['Score'] / result['Score'].sum() * 100
+        result['Investment Amount (₹)'] = (result['Weight %'] / 100) * investment_amount
 
-    return selected.round(2).drop(columns=['Score'])
+    return result.round(2).drop(columns='Score')
 
 # ----------------------------
-# 3-Month Backtesting
+# NSEpy-Based 3-Month Backtest
 # ----------------------------
 def run_backtest(stocks_df):
-    end_date = datetime.today()
-    start_date = end_date - timedelta(days=90)
+    end_date = datetime.today().date()
+    start_date = (end_date - timedelta(days=90))
+    results = []
 
-    returns = []
     for stock in stocks_df['Stock']:
-        ticker = TICKER_MAP.get(stock)
-        if not ticker:
+        symbol = TICKER_MAP.get(stock)
+        if not symbol:
             continue
         try:
-            hist = yf.download(ticker, start=start_date, end=end_date)
-            if len(hist) < 60:
-                continue  # Ignore incomplete data
-            start_price = hist['Adj Close'].iloc[0]
-            end_price = hist['Adj Close'].iloc[-1]
+            df = get_history(symbol=symbol, start=start_date, end=end_date)
+            if df.empty:
+                continue
+            start_price = df['Close'].iloc[0]
+            end_price = df['Close'].iloc[-1]
             cagr = ((end_price / start_price) ** (1 / (90 / 365)) - 1) * 100
-            volatility = hist['Adj Close'].pct_change().std() * np.sqrt(252) * 100
+            volatility = df['Close'].pct_change().std() * np.sqrt(252) * 100
             sharpe = cagr / (volatility if volatility else 1)
-            returns.append({
+            results.append({
                 'Stock': stock,
                 'Start Price': round(start_price, 2),
                 'End Price': round(end_price, 2),
                 'CAGR (3M) %': round(cagr, 2),
-                'Volatility (Annualized %)': round(volatility, 2),
+                'Volatility %': round(volatility, 2),
                 'Sharpe Ratio': round(sharpe, 2)
             })
-        except Exception:
+        except:
             continue
-    return pd.DataFrame(returns)
+
+    return pd.DataFrame(results)
 
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
 def simulate_earnings(amount, years):
-    rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
-    result = pd.DataFrame({'Year': list(range(0, years + 1))})
-    for label, rate in rates.items():
-        result[label] = amount * ((1 + rate) ** result['Year'])
-    return result
+    df = pd.DataFrame({'Year': list(range(years + 1))})
+    df['Bear (-5%)'] = amount * ((1 - 0.05) ** df['Year'])
+    df['Base (8%)'] = amount * ((1 + 0.08) ** df['Year'])
+    df['Bull (15%)'] = amount * ((1 + 0.15) ** df['Year'])
+    return df
 
 # ----------------------------
-# Monte Carlo Simulation
+# Monte Carlo
 # ----------------------------
-def monte_carlo_simulation(initial_investment, expected_return, volatility, years, n_simulations=500):
+def monte_carlo_simulation(initial, expected_return, volatility, years, n=500):
     np.random.seed(42)
-    simulations = np.zeros((n_simulations, years + 1))
-    simulations[:, 0] = initial_investment
+    sim = np.zeros((n, years + 1))
+    sim[:, 0] = initial
     for i in range(1, years + 1):
-        random_returns = np.random.normal(loc=expected_return, scale=volatility, size=n_simulations)
-        simulations[:, i] = simulations[:, i - 1] * (1 + random_returns)
-    return simulations
+        rand = np.random.normal(loc=expected_return, scale=volatility, size=n)
+        sim[:, i] = sim[:, i - 1] * (1 + rand)
+    return sim
 
 # ----------------------------
 # Streamlit UI
 # ----------------------------
-st.title("📊 AI-Based Stock Recommender for Fund Managers")
+st.title("📊 AI-Based Stock Recommender (NSEpy Backtest)")
 
 st.sidebar.header("Client Profile Input")
 age = st.sidebar.number_input("Age", 18, 100, 30)
 income = st.sidebar.number_input("Monthly Income (₹)", 10000, 200000, 50000, step=5000)
 dependents = st.sidebar.number_input("Number of Dependents", 0, 10, 2)
-qualification = st.sidebar.selectbox("Highest Qualification", ["Undergraduate", "Postgraduate", "Professional"])
+qualification = st.sidebar.selectbox("Qualification", ["Undergraduate", "Postgraduate", "Professional"])
 duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
 
-# ----------------------------
-# Generate Results
-# ----------------------------
 if st.button("Generate Recommendation"):
-    risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
-    st.success(f"🧠 Risk Profile: **{risk_profile}**")
+    profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
+    st.success(f"🧠 Risk Profile: **{profile}**")
 
-    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=True)
+    selected_stocks = get_stock_list(profile, investment_amount, diversify=True)
     st.subheader("📈 Recommended Portfolio")
-    st.dataframe(recommended_stocks)
+    st.dataframe(selected_stocks)
 
-    live_data = fetch_live_data(recommended_stocks)
-    st.subheader("📉 Live Stock Data (via yfinance)")
-    st.dataframe(live_data)
+    st.subheader("📉 Live Data (via yfinance)")
+    st.dataframe(fetch_live_data(selected_stocks))
 
-    st.subheader("📊 Backtesting Performance (3 Months)")
-    backtest_df = run_backtest(recommended_stocks)
-    if not backtest_df.empty:
-        st.dataframe(backtest_df)
+    st.subheader("🕰️ Backtesting (3-Months via NSEpy)")
+    bt = run_backtest(selected_stocks)
+    if not bt.empty:
+        st.dataframe(bt)
     else:
-        st.warning("No sufficient data available for 3-month backtest.")
+        st.warning("No data available for backtesting.")
 
-    st.subheader("📈 Projected Earnings Scenarios")
-    earning_df = simulate_earnings(investment_amount, duration)
-    st.line_chart(earning_df.set_index("Year"))
+    st.subheader("📈 Simulated Earnings")
+    sim_df = simulate_earnings(investment_amount, duration)
+    st.line_chart(sim_df.set_index("Year"))
 
-    st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
-    avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
-    avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
+    st.subheader("🧪 Monte Carlo Simulation")
+    avg_ret = (selected_stocks['Sharpe Ratio'] * selected_stocks['Weight %'] / 100).sum()
+    avg_vol = (selected_stocks['Volatility'] * selected_stocks['Weight %'] / 100).sum()
+    mc = monte_carlo_simulation(investment_amount, avg_ret, avg_vol, duration)
 
-    fig4, ax4 = plt.subplots(figsize=(10, 5))
-    for i in range(min(100, mc_results.shape[0])):
-        ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
-    median = np.percentile(mc_results, 50, axis=0)
-    p10 = np.percentile(mc_results, 10, axis=0)
-    p90 = np.percentile(mc_results, 90, axis=0)
-    ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
-    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Portfolio Value (₹)")
-    ax4.legend()
-    st.pyplot(fig4)
+    fig, ax = plt.subplots()
+    for i in range(100):
+        ax.plot(mc[i], color='grey', alpha=0.1)
+    ax.plot(np.percentile(mc, 50, axis=0), color='blue', label='Median')
+    ax.fill_between(range(duration + 1), np.percentile(mc, 10, axis=0), np.percentile(mc, 90, axis=0), color='blue', alpha=0.2, label='10-90% CI')
+    ax.set_title("Monte Carlo Simulation")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Portfolio Value (₹)")
+    ax.legend()
+    st.pyplot(fig)
