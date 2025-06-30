@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from datetime import datetime
-import time
+from pandas.tseries.offsets import DateOffset
 
 # ----------------------------
 # Ticker Map for Live Data
@@ -136,56 +136,55 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting (3 Months, skip Zomato, handle ValueError)
+# Backtesting - 3 Months
 # ----------------------------
-def safe_download(ticker, start, end, retries=3, delay=2):
-    for _ in range(retries):
-        try:
-            data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)['Adj Close']
-            if not data.empty:
-                return data
-        except Exception:
-            time.sleep(delay)
-    return pd.Series(dtype='float64')
-
-def backtest_portfolio(stocks_df, investment_amount):
-    st.subheader("📊 Backtesting Portfolio Over Past 3 Months")
-    end = pd.Timestamp.today()
-    start = end - pd.DateOffset(months=3)
+def backtest_portfolio(df, total_amount):
+    st.subheader("🔙 Backtesting Over Last 3 Months")
+    end = datetime.today()
+    start = end - DateOffset(months=3)
 
     price_data = {}
     weights = {}
 
-    for _, row in stocks_df.iterrows():
+    for _, row in df.iterrows():
         stock = row['Stock']
-        if stock == 'Zomato':
-            continue  # Skip due to missing/unstable data
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
+        if stock == 'Zomato':  # skip problematic stock
             continue
-        data = safe_download(ticker_symbol, start, end)
-        if not data.empty:
-            price_data[stock] = data
-            weights[stock] = row['Weight %'] / 100
+        ticker = TICKER_MAP.get(stock)
+        if not ticker:
+            continue
+        try:
+            series = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)['Close']
+            if isinstance(series, pd.Series) and not series.empty and len(series) > 5:
+                price_data[stock] = series
+                weights[stock] = row['Weight %'] / 100
+        except Exception as e:
+            st.warning(f"Failed to fetch data for {stock}: {str(e)}")
+            continue
 
     if not price_data:
-        st.warning("⚠️ No valid historical data available for backtesting.")
+        st.error("No valid stock data available for backtesting.")
         return
 
-    df_prices = pd.DataFrame(price_data).dropna()
     try:
+        df_prices = pd.DataFrame(price_data).dropna()
+        if df_prices.empty:
+            st.warning("Price data is empty after cleaning.")
+            return
+
         normalized = df_prices / df_prices.iloc[0]
-        portfolio = normalized.dot(pd.Series(weights)) * investment_amount
+        portfolio_value = normalized.dot(pd.Series(weights)) * total_amount
 
         fig, ax = plt.subplots()
-        ax.plot(portfolio.index, portfolio, label='Portfolio Value')
-        ax.set_title("Backtested Portfolio Value Over 3 Months")
+        ax.plot(portfolio_value.index, portfolio_value, label='Portfolio Value')
+        ax.set_title("Portfolio Backtest (3 Months)")
         ax.set_xlabel("Date")
         ax.set_ylabel("Value (₹)")
         ax.legend()
         st.pyplot(fig)
-    except ValueError as e:
-        st.error(f"⚠️ Error during backtesting: {e}")
+
+    except Exception as e:
+        st.error(f"Backtest failed: {str(e)}")
 
 # ----------------------------
 # Streamlit UI
@@ -239,4 +238,5 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
+    # Backtesting
     backtest_portfolio(recommended_stocks, investment_amount)
