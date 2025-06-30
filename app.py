@@ -12,7 +12,7 @@ TICKER_MAP = {
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Eternal Limited': 'ETERNAL.NS',  # Replace Zomato with Eternal Limited
+    'Eternal Limited': 'ETERNAL.NS',
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
