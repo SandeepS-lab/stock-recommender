@@ -2,21 +2,56 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from nsepy import get_history
-from datetime import date, timedelta
+import yfinance as yf
 
 # ----------------------------
-# Ticker Map for NSE Data
+# Ticker Map for Live Data
 # ----------------------------
 TICKER_MAP = {
-    'TCS': 'TCS',
-    'HDFC Bank': 'HDFCBANK',
-    'Infosys': 'INFY',
-    'Adani Enterprises': 'ADANIENT',
-    'Reliance Industries': 'RELIANCE',
-    'Bajaj Finance': 'BAJFINANCE',
-    'IRCTC': 'IRCTC'
+    'TCS': 'TCS.NS',
+    'HDFC Bank': 'HDFCBANK.NS',
+    'Infosys': 'INFY.NS',
+    'Adani Enterprises': 'ADANIENT.NS',
+    'Zomato': 'ZOMATO.NS',
+    'Reliance Industries': 'RELIANCE.NS',
+    'Bajaj Finance': 'BAJFINANCE.NS',
+    'IRCTC': 'IRCTC.NS'
 }
+
+# ----------------------------
+# Fetch Live Stock Data
+# ----------------------------
+def fetch_live_data(stock_df):
+    additional_data = []
+    for stock in stock_df['Stock']:
+        ticker_symbol = TICKER_MAP.get(stock)
+        if not ticker_symbol:
+            continue
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            info = ticker.info
+            additional_data.append({
+                'Stock': stock,
+                'Live Price (₹)': round(info.get('currentPrice', np.nan), 2),
+                '52W High (₹)': round(info.get('fiftyTwoWeekHigh', np.nan), 2),
+                '52W Low (₹)': round(info.get('fiftyTwoWeekLow', np.nan), 2),
+                'Dividend Yield (%)': round(info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0, 2),
+                'P/E Ratio': round(info.get('trailingPE', np.nan), 2),
+                'Market Cap (₹ Cr)': round(info.get('marketCap', 0) / 1e7, 2),
+                'Beta (Live)': round(info.get('beta', np.nan), 2)
+            })
+        except Exception:
+            additional_data.append({
+                'Stock': stock,
+                'Live Price (₹)': np.nan,
+                '52W High (₹)': np.nan,
+                '52W Low (₹)': np.nan,
+                'Dividend Yield (%)': np.nan,
+                'P/E Ratio': np.nan,
+                'Market Cap (₹ Cr)': np.nan,
+                'Beta (Live)': np.nan
+            })
+    return pd.DataFrame(additional_data)
 
 # ----------------------------
 # Risk Profiling Logic
@@ -44,12 +79,13 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': list(TICKER_MAP.keys()),
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 0.75],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 1.5],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.28],
-        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Large', 'Mid', 'Mid'],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive',
+        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
+                  'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
+        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
+        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
+        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
                           'Moderate', 'Moderate', 'Aggressive']
     }
     df = pd.DataFrame(data)
@@ -98,57 +134,6 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting Using NSEPY
-# ----------------------------
-def backtest_portfolio(stocks_df):
-    end = date.today()
-    start = end - timedelta(days=90)  # 3 months window
-
-    price_data = {}
-    weights = {}
-
-    for _, row in stocks_df.iterrows():
-        stock = row['Stock']
-        symbol = TICKER_MAP.get(stock)
-        if not symbol:
-            continue
-        try:
-            df = get_history(symbol=symbol, start=start, end=end)
-            if df.empty or 'Close' not in df.columns or df['Close'].isnull().all():
-                continue
-            price_data[stock] = df['Close']
-            weights[stock] = row['Weight %'] / 100
-        except Exception:
-            continue
-
-    if not price_data:
-        return None, "No valid NSE data available for backtesting."
-
-    df_prices = pd.DataFrame(price_data).dropna(axis=1, how='any')
-    if df_prices.shape[1] < 2:
-        return None, "Insufficient data after removing problematic stocks."
-
-    normalized = df_prices / df_prices.iloc[0]
-    total_weight = sum(weights[s] for s in df_prices.columns if s in weights)
-    weights = {k: v / total_weight for k, v in weights.items() if k in df_prices.columns}
-    portfolio = normalized.dot(pd.Series(weights))
-
-    returns = portfolio.pct_change().dropna()
-    cumulative = (1 + returns).cumprod()
-
-    months_elapsed = (df_prices.index[-1] - df_prices.index[0]).days / 30.0
-    annualized_return = (cumulative.iloc[-1] ** (12 / months_elapsed) - 1) * 100
-
-    stats = {
-        "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
-        "Annualized Return (%)": round(annualized_return, 2),
-        "Volatility (%)": round(returns.std() * np.sqrt(252) * 100, 2),
-        "Sharpe Ratio": round(returns.mean() / returns.std() * np.sqrt(252), 2)
-    }
-
-    return cumulative, stats
-
-# ----------------------------
 # Streamlit UI
 # ----------------------------
 st.title("📊 AI-Based Stock Recommender for Fund Managers")
@@ -162,6 +147,9 @@ duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
 
+# ----------------------------
+# Generate Results
+# ----------------------------
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
@@ -169,6 +157,10 @@ if st.button("Generate Recommendation"):
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=True)
     st.subheader("📈 Recommended Portfolio")
     st.dataframe(recommended_stocks)
+
+    live_data = fetch_live_data(recommended_stocks)
+    st.subheader("📉 Live Stock Data (via yfinance)")
+    st.dataframe(live_data)
 
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
@@ -183,4 +175,12 @@ if st.button("Generate Recommendation"):
     for i in range(min(100, mc_results.shape[0])):
         ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
     median = np.percentile(mc_results, 50, axis=0)
-    p10 = np.percentile(mc_results
+    p10 = np.percentile(mc_results, 10, axis=0)
+    p90 = np.percentile(mc_results, 90, axis=0)
+    ax4.plot(median, color='blue', label='Median Projection')
+    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
+    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
+    ax4.set_xlabel("Year")
+    ax4.set_ylabel("Portfolio Value (₹)")
+    ax4.legend()
+    st.pyplot(fig4)
