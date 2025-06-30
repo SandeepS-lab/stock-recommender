@@ -13,10 +13,10 @@ TICKER_MAP = {
     'HDFC Bank': 'HDFCBANK',
     'Infosys': 'INFY',
     'Adani Enterprises': 'ADANIENT',
-    'Zomato': 'ZOMATO',
     'Reliance Industries': 'RELIANCE',
     'Bajaj Finance': 'BAJFINANCE',
     'IRCTC': 'IRCTC'
+    # 'Zomato': 'ZOMATO' -> Explicitly removed due to data issues
 }
 
 # ----------------------------
@@ -46,11 +46,11 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
         'Stock': list(TICKER_MAP.keys()),
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
-        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Small', 'Large', 'Mid', 'Mid'],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Aggressive',
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 0.75],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 1.5],
+        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.28],
+        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Large', 'Mid', 'Mid'],
+        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive',
                           'Moderate', 'Moderate', 'Aggressive']
     }
     df = pd.DataFrame(data)
@@ -115,7 +115,7 @@ def backtest_portfolio(stocks_df):
             continue
         try:
             df = get_history(symbol=symbol, start=start, end=end)
-            if df.empty or 'Close' not in df.columns:
+            if df.empty or 'Close' not in df.columns or df['Close'].isnull().all():
                 continue
             price_data[stock] = df['Close']
             weights[stock] = row['Weight %'] / 100
