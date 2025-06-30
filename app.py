@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from datetime import datetime, timedelta
+from nsepy import get_history
 
 # ----------------------------
 # Ticker Map for Live Data
@@ -135,29 +136,25 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# 3-Month Backtest with Failure Logs
+# Backtesting via NSEPY (3-Month)
 # ----------------------------
 def run_backtest(stocks_df):
-    end_date = datetime.today()
+    end_date = datetime.today().date()
     start_date = end_date - timedelta(days=90)
 
     results = []
     failed_stocks = []
 
     for stock in stocks_df['Stock']:
-        ticker = TICKER_MAP.get(stock)
-        if not ticker:
-            failed_stocks.append(stock + " (not mapped)")
-            continue
         try:
-            data = yf.download(ticker, start=start_date, end=end_date, interval="1d", auto_adjust=True, progress=False)
-            if data.empty or 'Close' not in data.columns:
+            df = get_history(symbol=stock.split()[0], start=start_date, end=end_date)
+            if df.empty or 'Close' not in df.columns:
                 failed_stocks.append(stock)
                 continue
-            start_price = data['Close'].iloc[0]
-            end_price = data['Close'].iloc[-1]
+            start_price = df['Close'].iloc[0]
+            end_price = df['Close'].iloc[-1]
             cagr = ((end_price / start_price) ** (1 / (90 / 365)) - 1) * 100
-            volatility = data['Close'].pct_change().std() * np.sqrt(252) * 100
+            volatility = df['Close'].pct_change().std() * np.sqrt(252) * 100
             sharpe = cagr / (volatility if volatility else 1)
             results.append({
                 'Stock': stock,
@@ -216,7 +213,7 @@ if st.button("Generate Recommendation"):
     st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
+    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
 
     fig4, ax4 = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
