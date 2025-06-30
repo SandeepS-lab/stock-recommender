@@ -134,6 +134,50 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
+# Backtesting Portfolio
+# ----------------------------
+def backtest_portfolio(stocks_df, duration_years):
+    end = pd.Timestamp.today()
+    start = end - pd.DateOffset(years=duration_years)
+
+    price_data = {}
+    weights = {}
+    for _, row in stocks_df.iterrows():
+        stock = row['Stock']
+        ticker_symbol = TICKER_MAP.get(stock)
+        if not ticker_symbol:
+            continue
+        try:
+            data = yf.download(ticker_symbol, start=start, end=end, progress=False)['Adj Close']
+            if data.isnull().all():
+                continue
+            price_data[stock] = data
+            weights[stock] = row['Weight %'] / 100
+        except Exception:
+            continue
+
+    if not price_data:
+        return None, "No valid historical data available."
+
+    prices = pd.DataFrame(price_data).dropna()
+    returns = prices.pct_change().dropna()
+
+    total_weight = sum(weights.values())
+    weights = {k: v / total_weight for k, v in weights.items()}
+
+    portfolio_returns = returns @ pd.Series(weights)
+    cumulative = (1 + portfolio_returns).cumprod()
+
+    stats = {
+        "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
+        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / duration_years) - 1) * 100, 2),
+        "Volatility (%)": round(portfolio_returns.std() * np.sqrt(252) * 100, 2),
+        "Sharpe Ratio": round(portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252), 2)
+    }
+
+    return cumulative, stats
+
+# ----------------------------
 # Streamlit UI
 # ----------------------------
 st.title("📊 AI-Based Stock Recommender for Fund Managers")
@@ -184,3 +228,12 @@ if st.button("Generate Recommendation"):
     ax4.set_ylabel("Portfolio Value (₹)")
     ax4.legend()
     st.pyplot(fig4)
+
+    st.subheader("📊 Backtesting Over Past Years")
+    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks, duration)
+    if bt_cumulative is None:
+        st.warning(bt_stats)
+    else:
+        st.line_chart(bt_cumulative.rename("Indexed Portfolio Value"))
+        st.markdown("**📌 Backtest Metrics:**")
+        st.write(bt_stats)
