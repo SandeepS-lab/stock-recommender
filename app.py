@@ -1,5 +1,3 @@
-st.cache_data.clear()
-st.session_state.clear()
 import streamlit as st
 import pandas as pd
 import numpy as np
