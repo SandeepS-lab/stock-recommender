@@ -134,43 +134,76 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting Portfolio
+# Enhanced Backtesting Portfolio
 # ----------------------------
-def backtest_portfolio(stocks_df, duration_years):
-    end = pd.Timestamp.today()
-    start = end - pd.DateOffset(years=duration_years)
+def backtest_portfolio(stocks_df, primary_years=1):
+    def try_download_data(years_back):
+        end = pd.Timestamp.today()
+        start = end - pd.DateOffset(years=years_back)
+        price_data = {}
+        weights = {}
 
-    price_data = {}
-    weights = {}
-    for _, row in stocks_df.iterrows():
-        stock = row['Stock']
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
-            continue
-        try:
-            data = yf.download(ticker_symbol, start=start, end=end, progress=False)['Adj Close']
-            if data.isnull().all():
+        for _, row in stocks_df.iterrows():
+            stock = row['Stock']
+            ticker_symbol = TICKER_MAP.get(stock)
+            if not ticker_symbol:
                 continue
-            price_data[stock] = data
-            weights[stock] = row['Weight %'] / 100
+            try:
+                data = yf.download(ticker_symbol, start=start, end=end, progress=False)['Adj Close']
+                if data.isnull().all():
+                    continue
+                price_data[stock] = data
+                weights[stock] = row['Weight %'] / 100
+            except Exception:
+                continue
+
+        return price_data, weights
+
+    # Try 1 year
+    price_data, weights = try_download_data(primary_years)
+
+    # If all failed, try 6 months
+    if not price_data:
+        price_data, weights = try_download_data(0.5)
+
+    # If still failed, fallback to most recent available data
+    if not price_data:
+        try:
+            for _, row in stocks_df.iterrows():
+                stock = row['Stock']
+                ticker_symbol = TICKER_MAP.get(stock)
+                if not ticker_symbol:
+                    continue
+                data = yf.Ticker(ticker_symbol).history(period="6mo")['Close']
+                if data.isnull().all():
+                    continue
+                price_data[stock] = data
+                weights[stock] = row['Weight %'] / 100
         except Exception:
-            continue
+            return None, "No valid historical data available."
 
     if not price_data:
         return None, "No valid historical data available."
 
     prices = pd.DataFrame(price_data).dropna()
+    if prices.empty or prices.shape[1] < 2:
+        return None, "Insufficient data for portfolio backtesting."
+
     returns = prices.pct_change().dropna()
 
+    # Normalize weights
     total_weight = sum(weights.values())
     weights = {k: v / total_weight for k, v in weights.items()}
 
     portfolio_returns = returns @ pd.Series(weights)
     cumulative = (1 + portfolio_returns).cumprod()
 
+    days = (prices.index[-1] - prices.index[0]).days
+    years = days / 365.0
+
     stats = {
         "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
-        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / duration_years) - 1) * 100, 2),
+        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / years) - 1) * 100, 2),
         "Volatility (%)": round(portfolio_returns.std() * np.sqrt(252) * 100, 2),
         "Sharpe Ratio": round(portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252), 2)
     }
@@ -229,8 +262,8 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
-    st.subheader("📊 Backtesting Over Past Years")
-    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks, duration)
+    st.subheader("📊 Backtesting (1Y → 6M → fallback)")
+    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks)
     if bt_cumulative is None:
         st.warning(bt_stats)
     else:
