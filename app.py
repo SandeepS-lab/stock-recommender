@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
+from datetime import datetime, timedelta
 
 # ----------------------------
 # Ticker Map for Live Data
@@ -134,6 +135,40 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
+# Backtesting for 3 Months
+# ----------------------------
+def run_backtest(stocks_df):
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=90)
+
+    results = []
+    for stock in stocks_df['Stock']:
+        ticker = TICKER_MAP.get(stock)
+        if not ticker:
+            continue
+        try:
+            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
+            if data.empty:
+                continue
+            start_price = data['Close'].iloc[0]
+            end_price = data['Close'].iloc[-1]
+            cagr = ((end_price / start_price) ** (1 / (90 / 365)) - 1) * 100
+            volatility = data['Close'].pct_change().std() * np.sqrt(252) * 100
+            sharpe = cagr / (volatility if volatility else 1)
+            results.append({
+                'Stock': stock,
+                'Start Price': round(start_price, 2),
+                'End Price': round(end_price, 2),
+                'CAGR (3M) %': round(cagr, 2),
+                'Volatility %': round(volatility, 2),
+                'Sharpe Ratio': round(sharpe, 2)
+            })
+        except Exception:
+            continue
+
+    return pd.DataFrame(results)
+
+# ----------------------------
 # Streamlit UI
 # ----------------------------
 st.title("📊 AI-Based Stock Recommender for Fund Managers")
@@ -161,6 +196,13 @@ if st.button("Generate Recommendation"):
     live_data = fetch_live_data(recommended_stocks)
     st.subheader("📉 Live Stock Data (via yfinance)")
     st.dataframe(live_data)
+
+    st.subheader("📊 3-Month Backtest Results")
+    backtest_df = run_backtest(recommended_stocks)
+    if not backtest_df.empty:
+        st.dataframe(backtest_df)
+    else:
+        st.warning("Backtest data unavailable for selected stocks.")
 
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
