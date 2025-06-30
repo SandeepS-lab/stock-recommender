@@ -1,10 +1,7 @@
-import yfinance as yf
+from nsepython import nse_historical
 
-# TCS stock symbol for NSE on Yahoo Finance
-ticker = 'TCS.NS'
+# Fetch historical data for TCS (TCS is the correct symbol)
+data = nse_historical(symbol="TCS", from_date="01-01-2024", to_date="01-07-2024")
 
-# Fetch historical data (last 60 days in this case)
-tcs_data = yf.download(ticker, period="60d", interval="1d")
-
-# Display the first few rows
-print(tcs_data.head())
+# Display the data
+print(data)
