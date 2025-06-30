@@ -2,71 +2,22 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import yfinance as yf
-import time
-from datetime import datetime
+from nsepy import get_history
+from datetime import date, timedelta
 
 # ----------------------------
-# Ticker Map for Live Data
+# Ticker Map for NSE Data
 # ----------------------------
 TICKER_MAP = {
-    'TCS': 'TCS.NS',
-    'HDFC Bank': 'HDFCBANK.NS',
-    'Infosys': 'INFY.NS',
-    'Adani Enterprises': 'ADANIENT.NS',
-    'Zomato': 'ZOMATO.NS',
-    'Reliance Industries': 'RELIANCE.NS',
-    'Bajaj Finance': 'BAJFINANCE.NS',
-    'IRCTC': 'IRCTC.NS'
+    'TCS': 'TCS',
+    'HDFC Bank': 'HDFCBANK',
+    'Infosys': 'INFY',
+    'Adani Enterprises': 'ADANIENT',
+    'Zomato': 'ZOMATO',
+    'Reliance Industries': 'RELIANCE',
+    'Bajaj Finance': 'BAJFINANCE',
+    'IRCTC': 'IRCTC'
 }
-
-# ----------------------------
-# Safe Download Helper
-# ----------------------------
-def safe_download(ticker, start, end, retries=3, delay=2):
-    for _ in range(retries):
-        try:
-            data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)['Adj Close']
-            if not data.empty:
-                return data
-        except:
-            time.sleep(delay)
-    return pd.Series(dtype='float64')
-
-# ----------------------------
-# Fetch Live Stock Data
-# ----------------------------
-def fetch_live_data(stock_df):
-    additional_data = []
-    for stock in stock_df['Stock']:
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
-            continue
-        try:
-            ticker = yf.Ticker(ticker_symbol)
-            info = ticker.info
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': round(info.get('currentPrice', np.nan), 2),
-                '52W High (₹)': round(info.get('fiftyTwoWeekHigh', np.nan), 2),
-                '52W Low (₹)': round(info.get('fiftyTwoWeekLow', np.nan), 2),
-                'Dividend Yield (%)': round(info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0, 2),
-                'P/E Ratio': round(info.get('trailingPE', np.nan), 2),
-                'Market Cap (₹ Cr)': round(info.get('marketCap', 0) / 1e7, 2),
-                'Beta (Live)': round(info.get('beta', np.nan), 2)
-            })
-        except:
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': np.nan,
-                '52W High (₹)': np.nan,
-                '52W Low (₹)': np.nan,
-                'Dividend Yield (%)': np.nan,
-                'P/E Ratio': np.nan,
-                'Market Cap (₹ Cr)': np.nan,
-                'Beta (Live)': np.nan
-            })
-    return pd.DataFrame(additional_data)
 
 # ----------------------------
 # Risk Profiling Logic
@@ -94,8 +45,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
-                  'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
+        'Stock': list(TICKER_MAP.keys()),
         'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
         'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
@@ -149,39 +99,54 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Backtesting
+# Backtesting using NSE only
 # ----------------------------
-def backtest_portfolio(stocks_df, investment_amount):
-    st.subheader("📊 Backtesting Over Past 6 Months")
-    end = pd.Timestamp.today()
-    start = end - pd.DateOffset(months=6)
+def backtest_portfolio(stocks_df):
+    end = date.today()
+    start = end - timedelta(days=180)  # 6 months
     price_data = {}
     weights = {}
 
     for _, row in stocks_df.iterrows():
         stock = row['Stock']
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
+        nse_symbol = TICKER_MAP.get(stock)
+
+        if not nse_symbol:
             continue
-        data = safe_download(ticker_symbol, start, end)
-        if not data.empty:
+
+        try:
+            data = get_history(symbol=nse_symbol, start=start, end=end)['Close']
+            if data.empty:
+                continue
             price_data[stock] = data
             weights[stock] = row['Weight %'] / 100
+        except Exception as e:
+            print(f"Skipping {stock} due to error: {e}")
+            continue
 
     if not price_data:
-        st.warning("No valid historical data available.")
-        return
+        return None, "No valid NSE data available."
 
-    df_prices = pd.DataFrame(price_data).dropna()
-    normalized = df_prices / df_prices.iloc[0]
-    portfolio = normalized.dot(pd.Series(weights)) * investment_amount
-    fig, ax = plt.subplots()
-    ax.plot(portfolio.index, portfolio, label='Portfolio Value')
-    ax.set_title("Portfolio Value Over 6 Months")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Portfolio Value (₹)")
-    ax.legend()
-    st.pyplot(fig)
+    prices = pd.DataFrame(price_data).dropna()
+    if prices.empty or prices.shape[1] < 2:
+        return None, "Insufficient data for backtesting."
+
+    returns = prices.pct_change().dropna()
+    weights = {k: v / sum(weights.values()) for k, v in weights.items()}
+    portfolio_returns = returns @ pd.Series(weights)
+    cumulative = (1 + portfolio_returns).cumprod()
+
+    days = (prices.index[-1] - prices.index[0]).days
+    years = days / 365.0
+
+    stats = {
+        "Cumulative Return (%)": round((cumulative.iloc[-1] - 1) * 100, 2),
+        "Annualized Return (%)": round((cumulative.iloc[-1] ** (1 / years) - 1) * 100, 2),
+        "Volatility (%)": round(portfolio_returns.std() * np.sqrt(252) * 100, 2),
+        "Sharpe Ratio": round(portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252), 2)
+    }
+
+    return cumulative, stats
 
 # ----------------------------
 # Streamlit UI
@@ -197,6 +162,9 @@ duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
 
+# ----------------------------
+# Generate Results
+# ----------------------------
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
@@ -204,10 +172,6 @@ if st.button("Generate Recommendation"):
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=True)
     st.subheader("📈 Recommended Portfolio")
     st.dataframe(recommended_stocks)
-
-    live_data = fetch_live_data(recommended_stocks)
-    st.subheader("📉 Live Stock Data (via yfinance)")
-    st.dataframe(live_data)
 
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
@@ -225,11 +189,18 @@ if st.button("Generate Recommendation"):
     p10 = np.percentile(mc_results, 10, axis=0)
     p90 = np.percentile(mc_results, 90, axis=0)
     ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
+    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2)
     ax4.set_title("Monte Carlo Simulation of Portfolio Value")
     ax4.set_xlabel("Year")
     ax4.set_ylabel("Portfolio Value (₹)")
     ax4.legend()
     st.pyplot(fig4)
 
-    backtest_portfolio(recommended_stocks, investment_amount)
+    st.subheader("📊 Backtesting (NSE Only - 6M)")
+    bt_cumulative, bt_stats = backtest_portfolio(recommended_stocks)
+    if bt_cumulative is None:
+        st.warning(bt_stats)
+    else:
+        st.line_chart(bt_cumulative.rename("Indexed Portfolio Value"))
+        st.markdown("**📌 Backtest Metrics:**")
+        st.write(bt_stats)
