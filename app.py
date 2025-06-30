@@ -12,7 +12,7 @@ TICKER_MAP = {
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Zomato': 'ZOMATO.NS',
+    'Eternal Limited': 'ETERNAL.NS',  # Replace Zomato with Eternal Limited
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
@@ -79,7 +79,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Zomato',
+        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Eternal Limited',
                   'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
         'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
