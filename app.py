@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
+from datetime import datetime
+import time
 
 # ----------------------------
 # Ticker Map for Live Data
@@ -134,6 +136,58 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
+# Backtesting (3 Months, skip Zomato, handle ValueError)
+# ----------------------------
+def safe_download(ticker, start, end, retries=3, delay=2):
+    for _ in range(retries):
+        try:
+            data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)['Adj Close']
+            if not data.empty:
+                return data
+        except Exception:
+            time.sleep(delay)
+    return pd.Series(dtype='float64')
+
+def backtest_portfolio(stocks_df, investment_amount):
+    st.subheader("📊 Backtesting Portfolio Over Past 3 Months")
+    end = pd.Timestamp.today()
+    start = end - pd.DateOffset(months=3)
+
+    price_data = {}
+    weights = {}
+
+    for _, row in stocks_df.iterrows():
+        stock = row['Stock']
+        if stock == 'Zomato':
+            continue  # Skip due to missing/unstable data
+        ticker_symbol = TICKER_MAP.get(stock)
+        if not ticker_symbol:
+            continue
+        data = safe_download(ticker_symbol, start, end)
+        if not data.empty:
+            price_data[stock] = data
+            weights[stock] = row['Weight %'] / 100
+
+    if not price_data:
+        st.warning("⚠️ No valid historical data available for backtesting.")
+        return
+
+    df_prices = pd.DataFrame(price_data).dropna()
+    try:
+        normalized = df_prices / df_prices.iloc[0]
+        portfolio = normalized.dot(pd.Series(weights)) * investment_amount
+
+        fig, ax = plt.subplots()
+        ax.plot(portfolio.index, portfolio, label='Portfolio Value')
+        ax.set_title("Backtested Portfolio Value Over 3 Months")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Value (₹)")
+        ax.legend()
+        st.pyplot(fig)
+    except ValueError as e:
+        st.error(f"⚠️ Error during backtesting: {e}")
+
+# ----------------------------
 # Streamlit UI
 # ----------------------------
 st.title("📊 AI-Based Stock Recommender for Fund Managers")
@@ -184,3 +238,5 @@ if st.button("Generate Recommendation"):
     ax4.set_ylabel("Portfolio Value (₹)")
     ax4.legend()
     st.pyplot(fig4)
+
+    backtest_portfolio(recommended_stocks, investment_amount)
