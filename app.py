@@ -217,6 +217,24 @@ if st.button("Generate Recommendation"):
         st.markdown(f"📈 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
         st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
 
+        # --- Additional Metrics ---
+        daily_returns = portfolio_returns.pct_change().dropna()
+        sharpe_ratio = np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
+        annual_volatility = np.std(daily_returns) * np.sqrt(252)
+        cumulative = (1 + daily_returns).cumprod()
+        peak = cumulative.cummax()
+        drawdown = (cumulative - peak) / peak
+        max_drawdown = drawdown.min()
+        num_years = (portfolio_returns.index[-1] - portfolio_returns.index[0]).days / 365
+        final_value = portfolio_returns[-1]
+        cagr = (final_value) ** (1 / num_years) - 1
+
+        st.markdown("### 📌 Additional Backtest Metrics")
+        st.markdown(f"**Sharpe Ratio**: {sharpe_ratio:.2f}")
+        st.markdown(f"**Annual Volatility**: {annual_volatility:.2%}")
+        st.markdown(f"**Max Drawdown**: {max_drawdown:.2%}")
+        st.markdown(f"**CAGR**: {cagr:.2%}")
+
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
 
