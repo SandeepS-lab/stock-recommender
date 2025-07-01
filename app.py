@@ -207,6 +207,14 @@ if st.button("Generate Recommendation"):
         portfolio_returns = (normalized * portfolio_weights.values).sum(axis=1)
         market_returns = normalized.mean(axis=1)
 
+        daily_returns = portfolio_returns.pct_change().dropna()
+        sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
+        volatility = daily_returns.std() * np.sqrt(252)
+        cumulative = (1 + daily_returns).cumprod()
+        rolling_max = cumulative.cummax()
+        drawdown = (cumulative - rolling_max) / rolling_max
+        max_drawdown = drawdown.min()
+
         backtest_df = pd.DataFrame({
             "Portfolio": portfolio_returns,
             "Market Average": market_returns
@@ -215,6 +223,9 @@ if st.button("Generate Recommendation"):
         st.line_chart(backtest_df)
         st.markdown(f"\U0001F4C8 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
         st.markdown(f"\U0001F4C9 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
+        st.markdown(f"\u2728 **Sharpe Ratio**: {sharpe_ratio:.2f}")
+        st.markdown(f"\U0001F500 **Annualized Volatility**: {volatility:.2%}")
+        st.markdown(f"\U0001F4A8 **Max Drawdown**: {max_drawdown:.2%}")
 
     except Exception as e:
         st.error(f"\u26A0\uFE0F Backtest failed: {e}")
