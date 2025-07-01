@@ -3,64 +3,63 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Function to perform SMA crossover backtest
-def sma_backtest(data, short_window=10, long_window=50):
-    data = data.copy()
-    data['SMA10'] = data['Close'].rolling(window=short_window).mean()
-    data['SMA50'] = data['Close'].rolling(window=long_window).mean()
+# ----------------------------
+# Streamlit App Title
+# ----------------------------
+st.title("📈 3-Month Backtest: Equal-Weighted Portfolio")
 
-    # Drop rows where either SMA is NaN
-    data.dropna(inplace=True)
+# Define stock tickers
+tickers = {
+    "HDFC Bank": "HDFCBANK.NS",
+    "Infosys": "INFY.NS",
+    "TCS": "TCS.NS"
+}
 
-    if data.empty:
-        return None
+# Investment configuration
+initial_investment = 100000
+num_stocks = len(tickers)
+investment_per_stock = initial_investment / num_stocks
 
-    # Generate signals
-    data['Signal'] = 0
-    data.loc[data['SMA10'] > data['SMA50'], 'Signal'] = 1
-    data.loc[data['SMA10'] < data['SMA50'], 'Signal'] = -1
-    data['Position'] = data['Signal'].shift(1)
-
-    # Calculate returns
-    data['Returns'] = data['Close'].pct_change()
-    data['Strategy_Returns'] = data['Returns'] * data['Position']
-
-    # Cumulative returns
-    data['Cumulative_Market'] = (1 + data['Returns']).cumprod()
-    data['Cumulative_Strategy'] = (1 + data['Strategy_Returns']).cumprod()
-
-    return data
-
-# Title
-st.title("📈 SMA Crossover Backtest: HDFC Bank, TCS, Infosys")
-
-# Date range: last 3 months
+# Date range (last 90 days)
 end_date = datetime.today()
 start_date = end_date - timedelta(days=90)
 
-# Ticker dictionary
-tickers = {
-    "HDFC Bank": "HDFCBANK.NS",
-    "TCS": "TCS.NS",
-    "Infosys": "INFY.NS"
-}
+# ----------------------------
+# Fetch Closing Price Data
+# ----------------------------
+price_data = pd.DataFrame()
 
-# Loop and backtest each stock
-for company, symbol in tickers.items():
-    st.subheader(f"{company} ({symbol})")
-    data = yf.download(symbol, start=start_date, end=end_date)
+for name, symbol in tickers.items():
+    data = yf.download(symbol, start=start_date, end=end_date)['Close']
+    if data.empty:
+        st.warning(f"⚠️ No data found for {symbol}")
+        continue
+    data.name = name  # ✅ Correct way to name the series
+    price_data = pd.concat([price_data, data], axis=1)
 
-    if not data.empty:
-        result = sma_backtest(data)
+# ----------------------------
+# Backtest Calculation
+# ----------------------------
+if not price_data.empty:
+    st.subheader("📊 Daily Closing Prices")
+    st.dataframe(price_data)
 
-        if result is not None and 'Cumulative_Market' in result.columns:
-            # Plot only if valid results
-            st.line_chart(result[['Cumulative_Market', 'Cumulative_Strategy']])
-            st.write("📊 Final Returns:")
-            st.metric("Market Return (%)", f"{(result['Cumulative_Market'].iloc[-1] - 1) * 100:.2f}")
-            st.metric("Strategy Return (%)", f"{(result['Cumulative_Strategy'].iloc[-1] - 1) * 100:.2f}")
-            st.dataframe(result.tail(10))
-        else:
-            st.warning("⚠️ Not enough data to perform backtest (try a longer period).")
-    else:
-        st.warning(f"⚠️ No data found for {symbol}.")
+    # Normalize each stock to initial value = ₹investment_per_stock
+    normalized = price_data / price_data.iloc[0]
+    invested = normalized * investment_per_stock
+    portfolio_value = invested.sum(axis=1)
+
+    st.subheader("📈 Portfolio Value Over Time")
+    st.line_chart(portfolio_value)
+
+    # Final performance stats
+    total_return = (portfolio_value.iloc[-1] / portfolio_value.iloc[0] - 1) * 100
+    cagr = ((portfolio_value.iloc[-1] / portfolio_value.iloc[0]) ** (365 / 90) - 1) * 100
+
+    st.subheader("📌 Performance Summary")
+    st.markdown(f"- **Initial Investment:** ₹{initial_investment:,.0f}")
+    st.markdown(f"- **Final Portfolio Value:** ₹{portfolio_value.iloc[-1]:,.2f}")
+    st.markdown(f"- **Total Return (3M):** {total_return:.2f}%")
+    st.markdown(f"- **CAGR (Annualized):** {cagr:.2f}%")
+else:
+    st.error("No valid data was fetched. Please check ticker symbols or network.")
