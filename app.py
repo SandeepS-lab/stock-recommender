@@ -1,3 +1,4 @@
+# Imports
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,23 +6,19 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from datetime import datetime, timedelta
 
-# ----------------------------
-# Ticker Map
-# ----------------------------
+# Constants
 TICKER_MAP = {
     'TCS': 'TCS.NS',
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Eternal Limited': 'ETERNAL.NS',  # ⚠️ May be invalid
+    'Eternal Limited': 'ETERNAL.NS',
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
 }
 
-# ----------------------------
-# Fetch Live Stock Data
-# ----------------------------
+# Helper Functions
 def fetch_live_data(stock_df):
     additional_data = []
     for stock in stock_df['Stock']:
@@ -54,9 +51,6 @@ def fetch_live_data(stock_df):
             })
     return pd.DataFrame(additional_data)
 
-# ----------------------------
-# Risk Profiling Logic
-# ----------------------------
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
     score = 0
     if age < 30: score += 2
@@ -75,13 +69,9 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
     else:
         return "Aggressive"
 
-# ----------------------------
-# Basic Recommender
-# ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Eternal Limited',
-                  'Reliance Industries', 'Bajaj Finance', 'IRCTC'],
+        'Stock': list(TICKER_MAP.keys()),
         'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 0.65, 1.05, 0.95, 0.75],
         'Beta': [0.9, 0.85, 1.1, 1.4, 1.8, 1.0, 1.2, 1.5],
         'Volatility': [0.18, 0.20, 0.19, 0.25, 0.30, 0.22, 0.21, 0.28],
@@ -112,33 +102,10 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
 
     return selected.round(2).drop(columns=['Score'])
 
-# ----------------------------
-# Earnings Simulation
-# ----------------------------
-def simulate_earnings(amount, years):
-    rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
-    result = pd.DataFrame({'Year': list(range(0, years + 1))})
-    for label, rate in rates.items():
-        result[label] = amount * ((1 + rate) ** result['Year'])
-    return result
+# ----------------- Start Streamlit -----------------
+st.title("📊 AI-Based Stock Recommender + Backtester")
 
-# ----------------------------
-# Monte Carlo Simulation
-# ----------------------------
-def monte_carlo_simulation(initial_investment, expected_return, volatility, years, n_simulations=500):
-    np.random.seed(42)
-    simulations = np.zeros((n_simulations, years + 1))
-    simulations[:, 0] = initial_investment
-    for i in range(1, years + 1):
-        random_returns = np.random.normal(loc=expected_return, scale=volatility, size=n_simulations)
-        simulations[:, i] = simulations[:, i - 1] * (1 + random_returns)
-    return simulations
-
-# ----------------------------
-# Streamlit UI
-# ----------------------------
-st.title("📊 AI-Based Stock Recommender for Fund Managers")
-
+# Sidebar Inputs
 st.sidebar.header("Client Profile Input")
 age = st.sidebar.number_input("Age", 18, 100, 30)
 income = st.sidebar.number_input("Monthly Income (₹)", 10000, 200000, 50000, step=5000)
@@ -148,9 +115,7 @@ duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
 
-# ----------------------------
-# Generate Results
-# ----------------------------
+# Generate Recommendation
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
@@ -160,81 +125,45 @@ if st.button("Generate Recommendation"):
     st.dataframe(recommended_stocks)
 
     live_data = fetch_live_data(recommended_stocks)
-    st.subheader("📉 Live Stock Data (via yfinance)")
+    st.subheader("📉 Live Stock Data")
     st.dataframe(live_data)
 
-    st.subheader("📈 Projected Earnings Scenarios")
-    earning_df = simulate_earnings(investment_amount, duration)
-    st.line_chart(earning_df.set_index("Year"))
-
-    st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
-    avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
-    avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
-
-    fig4, ax4 = plt.subplots(figsize=(10, 5))
-    for i in range(min(100, mc_results.shape[0])):
-        ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
-    median = np.percentile(mc_results, 50, axis=0)
-    p10 = np.percentile(mc_results, 10, axis=0)
-    p90 = np.percentile(mc_results, 90, axis=0)
-    ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
-    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Portfolio Value (₹)")
-    ax4.legend()
-    st.pyplot(fig4)
-
-    # ----------------------------
-    # 📊 Portfolio Backtest (Last 3 Months)
-    # ----------------------------
-    st.subheader("📊 Portfolio Backtest (Last 3 Months)")
-
+    # Backtesting Section
+    st.subheader("📊 Portfolio Backtesting (3 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
 
-    start_date = datetime.today() - timedelta(days=90)
     end_date = datetime.today()
+    start_date = end_date - timedelta(days=90)
 
-    try:
-        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
-        price_data.dropna(axis=0, how='any', inplace=True)
+    price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
+    price_data = price_data.dropna(axis=1)  # drop stocks with no data
+    portfolio_weights = portfolio_weights[[s for s in portfolio_weights.index if TICKER_MAP[s] in price_data.columns]]
+    normalized = price_data / price_data.iloc[0]
+    portfolio_returns = (normalized * portfolio_weights).sum(axis=1)
 
-        if isinstance(price_data.columns, pd.MultiIndex):
-            price_data = price_data.droplevel(0, axis=1)
+    # Benchmark
+    benchmark = yf.download("^NSEI", start=start_date, end=end_date)['Close']
+    benchmark_norm = benchmark / benchmark.iloc[0]
 
-        normalized = price_data / price_data.iloc[0]
-        portfolio_returns = (normalized * portfolio_weights).sum(axis=1)
-        market_returns = normalized.mean(axis=1)
+    # Performance Metrics
+    def compute_metrics(series):
+        returns = series.pct_change().dropna()
+        cumulative = series.iloc[-1]
+        cagr = (cumulative / series.iloc[0]) ** (365 / len(series)) - 1
+        volatility = returns.std() * np.sqrt(252)
+        sharpe = returns.mean() / returns.std() * np.sqrt(252)
+        drawdown = (series / series.cummax() - 1).min()
+        return round(cagr*100,2), round(sharpe,2), round(drawdown*100,2), round(volatility*100,2)
 
-        backtest_df = pd.DataFrame({
-            "Portfolio": portfolio_returns,
-            "Market Average": market_returns
-        })
+    port_cagr, port_sharpe, port_dd, port_vol = compute_metrics(portfolio_returns)
+    bench_cagr, bench_sharpe, bench_dd, bench_vol = compute_metrics(benchmark_norm)
 
-        st.line_chart(backtest_df)
-        st.markdown(f"📈 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
-        st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
+    metrics_df = pd.DataFrame({
+        "Metric": ["CAGR", "Sharpe Ratio", "Max Drawdown", "Volatility"],
+        "Portfolio": [f"{port_cagr}%", port_sharpe, f"{port_dd}%", f"{port_vol}%"],
+        "Market": [f"{bench_cagr}%", bench_sharpe, f"{bench_dd}%", f"{bench_vol}%"]
+    })
 
-    except Exception as e:
-        st.error(f"⚠️ Backtest failed: {e}")
-
-# ----------------------------
-# Optional: Show Raw Historical Data
-# ----------------------------
-if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
-    st.subheader("📜 Historical Stock Data")
-    start_date = datetime.today() - timedelta(days=90)
-    end_date = datetime.today()
-
-    for stock_name, ticker in TICKER_MAP.items():
-        st.markdown(f"### {stock_name} ({ticker})")
-        try:
-            hist_data = yf.download(ticker, start=start_date, end=end_date)
-            if not hist_data.empty:
-                st.dataframe(hist_data.tail(5))
-            else:
-                st.warning(f"No historical data found for {stock_name} ({ticker})")
-        except Exception as e:
-            st.error(f"Error fetching data for {stock_name}: {e}")
+    st.subheader("📊 Backtest Performance Comparison")
+    st.dataframe(metrics_df)
