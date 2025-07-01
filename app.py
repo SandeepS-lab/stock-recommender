@@ -6,14 +6,14 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # ----------------------------
-# Ticker Map for Live Data
+# Ticker Map
 # ----------------------------
 TICKER_MAP = {
     'TCS': 'TCS.NS',
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Eternal Limited': 'ETERNAL.NS',  # ⚠️ May not exist on NSE
+    'Eternal Limited': 'ETERNAL.NS',  # ⚠️ May be invalid
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
@@ -170,7 +170,7 @@ if st.button("Generate Recommendation"):
     st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
-    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration, n_simulations=500)
+    mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
 
     fig4, ax4 = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
@@ -186,21 +186,55 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
+    # ----------------------------
+    # 📊 Portfolio Backtest (Last 3 Months)
+    # ----------------------------
+    st.subheader("📊 Portfolio Backtest (Last 3 Months)")
+
+    portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
+    tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
+
+    start_date = datetime.today() - timedelta(days=90)
+    end_date = datetime.today()
+
+    try:
+        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
+        price_data.dropna(axis=0, how='any', inplace=True)
+
+        if isinstance(price_data.columns, pd.MultiIndex):
+            price_data = price_data.droplevel(0, axis=1)
+
+        normalized = price_data / price_data.iloc[0]
+        portfolio_returns = (normalized * portfolio_weights).sum(axis=1)
+        market_returns = normalized.mean(axis=1)
+
+        backtest_df = pd.DataFrame({
+            "Portfolio": portfolio_returns,
+            "Market Average": market_returns
+        })
+
+        st.line_chart(backtest_df)
+        st.markdown(f"📈 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
+        st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
+
+    except Exception as e:
+        st.error(f"⚠️ Backtest failed: {e}")
+
 # ----------------------------
-# Optional: Historical Data Section
+# Optional: Show Raw Historical Data
 # ----------------------------
 if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
-    st.subheader("📜 Historical Stock Data (Past 3 Months)")
+    st.subheader("📜 Historical Stock Data")
+    start_date = datetime.today() - timedelta(days=90)
     end_date = datetime.today()
-    start_date = end_date - timedelta(days=90)
 
     for stock_name, ticker in TICKER_MAP.items():
         st.markdown(f"### {stock_name} ({ticker})")
         try:
             hist_data = yf.download(ticker, start=start_date, end=end_date)
             if not hist_data.empty:
-                st.dataframe(hist_data.tail(5))  # Only table, no chart
+                st.dataframe(hist_data.tail(5))
             else:
                 st.warning(f"No historical data found for {stock_name} ({ticker})")
         except Exception as e:
-            st.error(f"Error fetching data for {stock_name} ({ticker}): {e}")
+            st.error(f"Error fetching data for {stock_name}: {e}")
