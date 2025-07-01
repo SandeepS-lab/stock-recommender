@@ -187,32 +187,25 @@ if st.button("Generate Recommendation"):
     st.pyplot(fig4)
 
     # ----------------------------
-    # 📊 Portfolio Backtest (Last 3 Months)
+    # 📊 Portfolio Backtest (Last 12 Months)
     # ----------------------------
-    st.subheader("📊 Portfolio Backtest (Last 3 Months)")
+    st.subheader("📊 Portfolio Backtest (Last 12 Months)")
 
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
 
-    start_date = datetime.today() - timedelta(days=90)
+    start_date = datetime.today() - timedelta(days=365)
     end_date = datetime.today()
 
     try:
         price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
-        price_data.dropna(axis=1, how='any', inplace=True)
+        price_data.dropna(axis=0, how='any', inplace=True)
 
         if isinstance(price_data.columns, pd.MultiIndex):
             price_data = price_data.droplevel(0, axis=1)
 
-        # Align weights
-        available_stocks = price_data.columns.tolist()
-        stock_map_rev = {v: k for k, v in TICKER_MAP.items()}
-        available_stock_names = [stock_map_rev[ticker] for ticker in available_stocks]
-        portfolio_weights = portfolio_weights[portfolio_weights.index.isin(available_stock_names)]
-        portfolio_weights = portfolio_weights / portfolio_weights.sum()
-
         normalized = price_data / price_data.iloc[0]
-        portfolio_returns = (normalized * portfolio_weights.values).sum(axis=1)
+        portfolio_returns = (normalized * portfolio_weights).sum(axis=1)
         market_returns = normalized.mean(axis=1)
 
         backtest_df = pd.DataFrame({
@@ -221,25 +214,8 @@ if st.button("Generate Recommendation"):
         })
 
         st.line_chart(backtest_df)
-        st.markdown(f"📈 **Portfolio Return**: {round((portfolio_returns[-1] - 1) * 100, 2)}%")
-        st.markdown(f"📉 **Market Return**: {round((market_returns[-1] - 1) * 100, 2)}%")
-
-        daily_returns = portfolio_returns.pct_change().dropna()
-        sharpe_ratio = np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
-        annual_volatility = np.std(daily_returns) * np.sqrt(252)
-        cumulative = (1 + daily_returns).cumprod()
-        peak = cumulative.cummax()
-        drawdown = (cumulative - peak) / peak
-        max_drawdown = drawdown.min()
-        num_years = (portfolio_returns.index[-1] - portfolio_returns.index[0]).days / 365
-        final_value = portfolio_returns[-1]
-        cagr = (final_value) ** (1 / num_years) - 1
-
-        st.markdown("### 🖌️ Additional Backtest Metrics")
-        st.markdown(f"**Sharpe Ratio**: {sharpe_ratio:.2f}")
-        st.markdown(f"**Annual Volatility**: {annual_volatility:.2%}")
-        st.markdown(f"**Max Drawdown**: {max_drawdown:.2%}")
-        st.markdown(f"**CAGR**: {cagr:.2%}")
+        st.markdown(f"📈 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
+        st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
 
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
