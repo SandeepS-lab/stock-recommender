@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
+from datetime import datetime, timedelta
 
 # ----------------------------
 # Ticker Map for Live Data
@@ -184,3 +185,23 @@ if st.button("Generate Recommendation"):
     ax4.set_ylabel("Portfolio Value (₹)")
     ax4.legend()
     st.pyplot(fig4)
+
+# ----------------------------
+# Optional: Historical Data Section
+# ----------------------------
+if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
+    st.subheader("📜 Historical Stock Data (Past 3 Months)")
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=90)
+
+    for stock_name, ticker in TICKER_MAP.items():
+        st.markdown(f"### {stock_name} ({ticker})")
+        try:
+            hist_data = yf.download(ticker, start=start_date, end=end_date)
+            if not hist_data.empty:
+                st.line_chart(hist_data['Close'])
+                st.dataframe(hist_data.tail(5))  # Show last 5 rows
+            else:
+                st.warning(f"No historical data found for {stock_name} ({ticker})")
+        except Exception as e:
+            st.error(f"Error fetching data for {stock_name} ({ticker}): {e}")
