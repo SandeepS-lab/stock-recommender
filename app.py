@@ -13,7 +13,7 @@ TICKER_MAP = {
     'HDFC Bank': 'HDFCBANK.NS',
     'Infosys': 'INFY.NS',
     'Adani Enterprises': 'ADANIENT.NS',
-    'Eternal Limited': 'ETERNAL.NS',
+    'Eternal Limited': 'ETERNAL.NS',  # ⚠️ May not exist on NSE
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
     'IRCTC': 'IRCTC.NS'
@@ -199,8 +199,7 @@ if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
         try:
             hist_data = yf.download(ticker, start=start_date, end=end_date)
             if not hist_data.empty:
-                st.line_chart(hist_data['Close'])
-                st.dataframe(hist_data.tail(5))  # Show last 5 rows
+                st.dataframe(hist_data.tail(5))  # Only table, no chart
             else:
                 st.warning(f"No historical data found for {stock_name} ({ticker})")
         except Exception as e:
