@@ -1,3 +1,4 @@
+# === Part 1 of 2 ===
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -26,41 +27,6 @@ TICKER_MAP = {
 }
 
 # ----------------------------
-# Fetch Live Stock Data
-# ----------------------------
-def fetch_live_data(stock_df):
-    additional_data = []
-    for stock in stock_df['Stock']:
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
-            continue
-        try:
-            ticker = yf.Ticker(ticker_symbol)
-            info = ticker.fast_info or {}
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': round(info.get('last_price', np.nan), 2),
-                '52W High (₹)': round(info.get('year_high', np.nan), 2),
-                '52W Low (₹)': round(info.get('year_low', np.nan), 2),
-                'Dividend Yield (%)': np.nan,
-                'P/E Ratio': np.nan,
-                'Market Cap (₹ Cr)': np.nan,
-                'Beta (Live)': np.nan
-            })
-        except Exception:
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': np.nan,
-                '52W High (₹)': np.nan,
-                '52W Low (₹)': np.nan,
-                'Dividend Yield (%)': np.nan,
-                'P/E Ratio': np.nan,
-                'Market Cap (₹ Cr)': np.nan,
-                'Beta (Live)': np.nan
-            })
-    return pd.DataFrame(additional_data)
-
-# ----------------------------
 # Risk Profiling Logic
 # ----------------------------
 def get_risk_profile(age, income, dependents, qualification, duration, investment_type):
@@ -82,43 +48,78 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
+# Compute Real Metrics from yfinance
+# ----------------------------
+def compute_financial_metrics(tickers):
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=730)
+    prices = yf.download(tickers, start=start_date, end=end_date)['Close']
+
+    if isinstance(prices.columns, pd.MultiIndex):
+        prices = prices.droplevel(0, axis=1)
+
+    prices = prices.dropna(axis=1, how='any')
+    daily_returns = prices.pct_change().dropna()
+    
+    benchmark = yf.download("NIFTYBEES.NS", start=start_date, end=end_date)['Close']
+    benchmark_returns = benchmark.pct_change().dropna()
+    
+    metrics = []
+    for stock in prices.columns:
+        returns = daily_returns[stock]
+        excess_returns = returns - 0.07 / 252
+        sharpe = (excess_returns.mean() / excess_returns.std()) * np.sqrt(252)
+        volatility = returns.std() * np.sqrt(252)
+        covariance = np.cov(returns, benchmark_returns.loc[returns.index])[0][1]
+        benchmark_var = benchmark_returns.var()
+        beta = covariance / benchmark_var if benchmark_var != 0 else np.nan
+        metrics.append({
+            'Stock': stock,
+            'Sharpe Ratio': round(sharpe, 2),
+            'Volatility': round(volatility, 4),
+            'Beta': round(beta, 2)
+        })
+
+    return pd.DataFrame(metrics)
+
+# ----------------------------
 # Stock Recommendation Logic
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
-    data = {
-        'Stock': list(TICKER_MAP.keys()),
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 1.1, 0.9, 1.0, 1.2, 1.0, 1.05, 1.0, 0.95],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 0.95, 1.1, 1.0, 0.8, 1.1, 0.9, 1.0, 1.2],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.19, 0.23, 0.20, 0.17, 0.24, 0.20, 0.21, 0.22],
-        'Market Cap': ['Large']*14,
-        'Risk Category': [
-            'Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Moderate',
-            'Moderate', 'Conservative', 'Moderate', 'Moderate',
-            'Conservative', 'Aggressive', 'Conservative', 'Moderate', 'Aggressive'
-        ]
+    tickers = list(TICKER_MAP.values())
+    metric_df = compute_financial_metrics(tickers)
+    reverse_map = {v: k for k, v in TICKER_MAP.items()}
+    metric_df['Stock'] = metric_df['Stock'].map(reverse_map)
+
+    risk_map = {
+        'Conservative': (0, 0.95),
+        'Moderate': (0.95, 1.1),
+        'Aggressive': (1.1, float('inf'))
     }
-    df = pd.DataFrame(data)
+    low, high = risk_map[risk_profile]
+    filtered = metric_df[(metric_df['Sharpe Ratio'] >= low) & (metric_df['Sharpe Ratio'] < high)].copy()
 
     if diversify:
         portions = {'Conservative': 0.33, 'Moderate': 0.33, 'Aggressive': 0.34}
-        dfs = []
-        for cat, portion in portions.items():
-            temp = df[df['Risk Category'] == cat].copy()
-            temp['Score'] = temp['Sharpe Ratio'] / temp['Beta']
-            temp['Weight %'] = temp['Score'] / temp['Score'].sum() * portion * 100
-            temp['Investment Amount (₹)'] = (temp['Weight %'] / 100) * investment_amount
-            dfs.append(temp)
-        selected = pd.concat(dfs)
+        result = []
+        for profile, weight in portions.items():
+            l, h = risk_map[profile]
+            sub = metric_df[(metric_df['Sharpe Ratio'] >= l) & (metric_df['Sharpe Ratio'] < h)].copy()
+            sub['Score'] = sub['Sharpe Ratio'] / sub['Beta']
+            sub['Weight %'] = sub['Score'] / sub['Score'].sum() * weight * 100
+            sub['Investment Amount (₹)'] = (sub['Weight %'] / 100) * investment_amount
+            result.append(sub)
+        final = pd.concat(result)
     else:
-        selected = df[df['Risk Category'] == risk_profile].copy()
-        if len(selected) < 5:
-            others = df[df['Risk Category'] != risk_profile]
-            selected = pd.concat([selected, others.head(5 - len(selected))])
-        selected['Score'] = selected['Sharpe Ratio'] / selected['Beta']
-        selected['Weight %'] = selected['Score'] / selected['Score'].sum() * 100
-        selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
+        if filtered.empty:
+            filtered = metric_df.copy()
+        filtered['Score'] = filtered['Sharpe Ratio'] / filtered['Beta']
+        filtered['Weight %'] = filtered['Score'] / filtered['Score'].sum() * 100
+        filtered['Investment Amount (₹)'] = (filtered['Weight %'] / 100) * investment_amount
+        final = filtered
 
-    return selected.round(2).drop(columns=['Score'])
+    return final.round(2).drop(columns=['Score'])
+# === Part 2 of 2 ===
 
 # ----------------------------
 # Earnings Simulation
@@ -165,10 +166,6 @@ if st.button("Generate Recommendation"):
     st.subheader("📊 Recommended Portfolio")
     st.dataframe(recommended_stocks)
 
-    live_data = fetch_live_data(recommended_stocks)
-    st.subheader("📉 Live Stock Data (via yfinance)")
-    st.dataframe(live_data)
-
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
     st.line_chart(earning_df.set_index("Year"))
@@ -192,7 +189,7 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
-    st.subheader("📉 Portfolio Backtest (Last 24 Months)")
+    st.subheader("📉 Portfolio Backtest vs NIFTYBEES (Last 24 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
 
@@ -200,50 +197,49 @@ if st.button("Generate Recommendation"):
     end_date = datetime.today()
 
     try:
-        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
+        price_data = yf.download(tickers + ["NIFTYBEES.NS"], start=start_date, end=end_date)['Close']
 
         if isinstance(price_data.columns, pd.MultiIndex):
             price_data = price_data.droplevel(0, axis=1)
 
         price_data.dropna(axis=1, how='any', inplace=True)
+        tickers = [ticker for ticker in tickers if ticker in price_data.columns]
+        portfolio_weights = portfolio_weights[[stock for stock in portfolio_weights.index if TICKER_MAP[stock] in price_data.columns]]
 
-        valid_stocks = [stock for stock in portfolio_weights.index if TICKER_MAP[stock] in price_data.columns]
-        tickers = [TICKER_MAP[stock] for stock in valid_stocks]
-        portfolio_weights = portfolio_weights[valid_stocks]
-        price_data = price_data[tickers]
+        portfolio_data = price_data[tickers]
+        benchmark_data = price_data["NIFTYBEES.NS"]
 
-        normalized = price_data / price_data.iloc[0]
+        normalized = portfolio_data / portfolio_data.iloc[0]
         portfolio_returns = (normalized * portfolio_weights.values).sum(axis=1)
-        market_returns = normalized.mean(axis=1)
+        benchmark_normalized = benchmark_data / benchmark_data.iloc[0]
 
         daily_returns = portfolio_returns.pct_change().dropna()
-        market_daily_returns = market_returns.pct_change().dropna()
+        benchmark_returns = benchmark_normalized.pct_change().dropna()
 
         sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
-        market_sharpe = (market_daily_returns.mean() / market_daily_returns.std()) * np.sqrt(252)
+        benchmark_sharpe = (benchmark_returns.mean() / benchmark_returns.std()) * np.sqrt(252)
         volatility = daily_returns.std() * np.sqrt(252)
-        market_volatility = market_daily_returns.std() * np.sqrt(252)
+        benchmark_volatility = benchmark_returns.std() * np.sqrt(252)
         cumulative = (1 + daily_returns).cumprod()
         rolling_max = cumulative.cummax()
         drawdown = (cumulative - rolling_max) / rolling_max
         max_drawdown = drawdown.min()
-        market_cumulative = (1 + market_daily_returns).cumprod()
-        market_drawdown = (market_cumulative - market_cumulative.cummax()) / market_cumulative.cummax()
-        market_max_drawdown = market_drawdown.min()
+        benchmark_cumulative = (1 + benchmark_returns).cumprod()
+        benchmark_drawdown = (benchmark_cumulative - benchmark_cumulative.cummax()) / benchmark_cumulative.cummax()
+        benchmark_max_drawdown = benchmark_drawdown.min()
 
         backtest_df = pd.DataFrame({
             "Portfolio": portfolio_returns,
-            "Market Average": market_returns
+            "NIFTYBEES (Benchmark)": benchmark_normalized
         })
 
         st.line_chart(backtest_df)
         st.markdown(f"📊 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
-        st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
+        st.markdown(f"📉 **Benchmark Return**: {round((benchmark_normalized[-1]-1)*100, 2)}%")
         st.markdown(f"✨ **Sharpe Ratio**: {sharpe_ratio:.2f}")
         st.markdown(f"🔁 **Annualized Volatility**: {volatility:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_drawdown:.2%}")
 
-        # 🆕 Comparison Table
         comparison_data = {
             "Metric": ["Cumulative Return (%)", "Annualized Volatility (%)", "Sharpe Ratio", "Max Drawdown (%)"],
             "Portfolio": [
@@ -252,33 +248,17 @@ if st.button("Generate Recommendation"):
                 round(sharpe_ratio, 2),
                 round(max_drawdown * 100, 2)
             ],
-            "Market": [
-                round((market_returns[-1] - 1) * 100, 2),
-                round(market_volatility * 100, 2),
-                round(market_sharpe, 2),
-                round(market_max_drawdown * 100, 2)
+            "NIFTYBEES (Benchmark)": [
+                round((benchmark_normalized[-1] - 1) * 100, 2),
+                round(benchmark_volatility * 100, 2),
+                round(benchmark_sharpe, 2),
+                round(benchmark_max_drawdown * 100, 2)
             ]
         }
 
         comparison_df = pd.DataFrame(comparison_data)
-        st.subheader("📊 Portfolio vs Market Comparison")
+        st.subheader("📊 Portfolio vs Benchmark Comparison")
         st.table(comparison_df.set_index("Metric"))
 
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
-
-if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
-    st.subheader("📜 Historical Stock Data")
-    start_date = datetime.today() - timedelta(days=90)
-    end_date = datetime.today()
-
-    for stock_name, ticker in TICKER_MAP.items():
-        st.markdown(f"### {stock_name} ({ticker})")
-        try:
-            hist_data = yf.download(ticker, start=start_date, end=end_date)
-            if not hist_data.empty:
-                st.dataframe(hist_data.tail(5))
-            else:
-                st.warning(f"No historical data found for {stock_name} ({ticker})")
-        except Exception as e:
-            st.error(f"Error fetching data for {stock_name}: {e}")
