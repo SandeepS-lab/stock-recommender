@@ -6,7 +6,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # ----------------------------
-# Ticker Map (10 stocks)
+# Ticker Map (15 Stocks)
 # ----------------------------
 TICKER_MAP = {
     'TCS': 'TCS.NS',
@@ -18,7 +18,12 @@ TICKER_MAP = {
     'IRCTC': 'IRCTC.NS',
     'Asian Paints': 'ASIANPAINT.NS',
     'Larsen & Toubro': 'LT.NS',
-    'Axis Bank': 'AXISBANK.NS'
+    'Axis Bank': 'AXISBANK.NS',
+    'Hindustan Unilever': 'HINDUNILVR.NS',
+    'Maruti Suzuki': 'MARUTI.NS',
+    'ITC Ltd': 'ITC.NS',
+    'Kotak Mahindra Bank': 'KOTAKBANK.NS',
+    'State Bank of India': 'SBIN.NS'
 }
 
 # ----------------------------
@@ -78,19 +83,24 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Stock Recommendation
+# Stock Recommendation Logic
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': ['TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises',
-                  'Reliance Industries', 'Bajaj Finance', 'IRCTC',
-                  'Asian Paints', 'Larsen & Toubro', 'Axis Bank'],
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 0.75, 1.1, 0.9, 1.0],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 1.5, 0.95, 1.1, 1.0],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.28, 0.19, 0.23, 0.20],
-        'Market Cap': ['Large', 'Large', 'Large', 'Mid', 'Large', 'Mid', 'Mid', 'Large', 'Large', 'Large'],
-        'Risk Category': ['Conservative', 'Moderate', 'Moderate', 'Aggressive',
-                          'Moderate', 'Moderate', 'Aggressive', 'Conservative', 'Moderate', 'Moderate']
+        'Stock': [
+            'TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Reliance Industries',
+            'Bajaj Finance', 'IRCTC', 'Asian Paints', 'Larsen & Toubro', 'Axis Bank',
+            'Hindustan Unilever', 'Maruti Suzuki', 'ITC Ltd', 'Kotak Mahindra Bank', 'State Bank of India'
+        ],
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 0.75, 1.1, 0.9, 1.0, 1.2, 1.0, 1.05, 1.0, 0.95],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 1.5, 0.95, 1.1, 1.0, 0.8, 1.1, 0.9, 1.0, 1.2],
+        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.28, 0.19, 0.23, 0.20, 0.17, 0.24, 0.20, 0.21, 0.22],
+        'Market Cap': ['Large']*15,
+        'Risk Category': [
+            'Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Moderate',
+            'Moderate', 'Aggressive', 'Conservative', 'Moderate', 'Moderate',
+            'Conservative', 'Aggressive', 'Conservative', 'Moderate', 'Aggressive'
+        ]
     }
     df = pd.DataFrame(data)
 
@@ -115,6 +125,9 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
 
     return selected.round(2).drop(columns=['Score'])
 
+# ----------------------------
+# Earnings & Monte Carlo (next message...)
+# ----------------------------
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
