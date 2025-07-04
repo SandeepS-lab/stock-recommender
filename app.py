@@ -124,10 +124,6 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
 
     return selected.round(2).drop(columns=['Score'])
-
-# ----------------------------
-# Earnings & Monte Carlo (next message...)
-# ----------------------------
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
@@ -200,11 +196,11 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
-    st.subheader("📉 Portfolio Backtest (Last 12 Months)")
+    st.subheader("📉 Portfolio Backtest (Last 24 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
 
-    start_date = datetime.today() - timedelta(days=365)
+    start_date = datetime.today() - timedelta(days=730)  # ⬅️ 24-month backtest
     end_date = datetime.today()
 
     try:
