@@ -6,7 +6,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # ----------------------------
-# Ticker Map (14 Stocks with 2-Year History)
+# Ticker Map (15 Stocks)
 # ----------------------------
 TICKER_MAP = {
     'TCS': 'TCS.NS',
@@ -15,6 +15,7 @@ TICKER_MAP = {
     'Adani Enterprises': 'ADANIENT.NS',
     'Reliance Industries': 'RELIANCE.NS',
     'Bajaj Finance': 'BAJFINANCE.NS',
+    'IRCTC': 'IRCTC.NS',
     'Asian Paints': 'ASIANPAINT.NS',
     'Larsen & Toubro': 'LT.NS',
     'Axis Bank': 'AXISBANK.NS',
@@ -86,14 +87,18 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
-        'Stock': list(TICKER_MAP.keys()),
-        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 1.1, 0.9, 1.0, 1.2, 1.0, 1.05, 1.0, 0.95],
-        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 0.95, 1.1, 1.0, 0.8, 1.1, 0.9, 1.0, 1.2],
-        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.19, 0.23, 0.20, 0.17, 0.24, 0.20, 0.21, 0.22],
-        'Market Cap': ['Large']*14,
+        'Stock': [
+            'TCS', 'HDFC Bank', 'Infosys', 'Adani Enterprises', 'Reliance Industries',
+            'Bajaj Finance', 'IRCTC', 'Asian Paints', 'Larsen & Toubro', 'Axis Bank',
+            'Hindustan Unilever', 'Maruti Suzuki', 'ITC Ltd', 'Kotak Mahindra Bank', 'State Bank of India'
+        ],
+        'Sharpe Ratio': [1.2, 1.0, 1.15, 0.85, 1.05, 0.95, 0.75, 1.1, 0.9, 1.0, 1.2, 1.0, 1.05, 1.0, 0.95],
+        'Beta': [0.9, 0.85, 1.1, 1.4, 1.0, 1.2, 1.5, 0.95, 1.1, 1.0, 0.8, 1.1, 0.9, 1.0, 1.2],
+        'Volatility': [0.18, 0.20, 0.19, 0.25, 0.22, 0.21, 0.28, 0.19, 0.23, 0.20, 0.17, 0.24, 0.20, 0.21, 0.22],
+        'Market Cap': ['Large']*15,
         'Risk Category': [
             'Conservative', 'Moderate', 'Moderate', 'Aggressive', 'Moderate',
-            'Moderate', 'Conservative', 'Moderate', 'Moderate',
+            'Moderate', 'Aggressive', 'Conservative', 'Moderate', 'Moderate',
             'Conservative', 'Aggressive', 'Conservative', 'Moderate', 'Aggressive'
         ]
     }
@@ -120,6 +125,9 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
 
     return selected.round(2).drop(columns=['Score'])
 
+# ----------------------------
+# Earnings & Monte Carlo (next message...)
+# ----------------------------
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
@@ -192,11 +200,11 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
-    st.subheader("📉 Portfolio Backtest (Last 24 Months)")
+    st.subheader("📉 Portfolio Backtest (Last 12 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
 
-    start_date = datetime.today() - timedelta(days=730)
+    start_date = datetime.today() - timedelta(days=365)
     end_date = datetime.today()
 
     try:
@@ -217,19 +225,12 @@ if st.button("Generate Recommendation"):
         market_returns = normalized.mean(axis=1)
 
         daily_returns = portfolio_returns.pct_change().dropna()
-        market_daily_returns = market_returns.pct_change().dropna()
-
         sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
-        market_sharpe = (market_daily_returns.mean() / market_daily_returns.std()) * np.sqrt(252)
         volatility = daily_returns.std() * np.sqrt(252)
-        market_volatility = market_daily_returns.std() * np.sqrt(252)
         cumulative = (1 + daily_returns).cumprod()
         rolling_max = cumulative.cummax()
         drawdown = (cumulative - rolling_max) / rolling_max
         max_drawdown = drawdown.min()
-        market_cumulative = (1 + market_daily_returns).cumprod()
-        market_drawdown = (market_cumulative - market_cumulative.cummax()) / market_cumulative.cummax()
-        market_max_drawdown = market_drawdown.min()
 
         backtest_df = pd.DataFrame({
             "Portfolio": portfolio_returns,
@@ -242,27 +243,6 @@ if st.button("Generate Recommendation"):
         st.markdown(f"✨ **Sharpe Ratio**: {sharpe_ratio:.2f}")
         st.markdown(f"🔁 **Annualized Volatility**: {volatility:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_drawdown:.2%}")
-
-        # 🆕 Comparison Table
-        comparison_data = {
-            "Metric": ["Cumulative Return (%)", "Annualized Volatility (%)", "Sharpe Ratio", "Max Drawdown (%)"],
-            "Portfolio": [
-                round((portfolio_returns[-1] - 1) * 100, 2),
-                round(volatility * 100, 2),
-                round(sharpe_ratio, 2),
-                round(max_drawdown * 100, 2)
-            ],
-            "Market": [
-                round((market_returns[-1] - 1) * 100, 2),
-                round(market_volatility * 100, 2),
-                round(market_sharpe, 2),
-                round(market_max_drawdown * 100, 2)
-            ]
-        }
-
-        comparison_df = pd.DataFrame(comparison_data)
-        st.subheader("📊 Portfolio vs Market Comparison")
-        st.table(comparison_df.set_index("Metric"))
 
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
