@@ -119,6 +119,7 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
 
     return selected.round(2).drop(columns=['Score'])
+
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
@@ -216,12 +217,19 @@ if st.button("Generate Recommendation"):
         market_returns = normalized.mean(axis=1)
 
         daily_returns = portfolio_returns.pct_change().dropna()
+        market_daily_returns = market_returns.pct_change().dropna()
+
         sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
+        market_sharpe = (market_daily_returns.mean() / market_daily_returns.std()) * np.sqrt(252)
         volatility = daily_returns.std() * np.sqrt(252)
+        market_volatility = market_daily_returns.std() * np.sqrt(252)
         cumulative = (1 + daily_returns).cumprod()
         rolling_max = cumulative.cummax()
         drawdown = (cumulative - rolling_max) / rolling_max
         max_drawdown = drawdown.min()
+        market_cumulative = (1 + market_daily_returns).cumprod()
+        market_drawdown = (market_cumulative - market_cumulative.cummax()) / market_cumulative.cummax()
+        market_max_drawdown = market_drawdown.min()
 
         backtest_df = pd.DataFrame({
             "Portfolio": portfolio_returns,
@@ -234,6 +242,27 @@ if st.button("Generate Recommendation"):
         st.markdown(f"✨ **Sharpe Ratio**: {sharpe_ratio:.2f}")
         st.markdown(f"🔁 **Annualized Volatility**: {volatility:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_drawdown:.2%}")
+
+        # 🆕 Comparison Table
+        comparison_data = {
+            "Metric": ["Cumulative Return (%)", "Annualized Volatility (%)", "Sharpe Ratio", "Max Drawdown (%)"],
+            "Portfolio": [
+                round((portfolio_returns[-1] - 1) * 100, 2),
+                round(volatility * 100, 2),
+                round(sharpe_ratio, 2),
+                round(max_drawdown * 100, 2)
+            ],
+            "Market": [
+                round((market_returns[-1] - 1) * 100, 2),
+                round(market_volatility * 100, 2),
+                round(market_sharpe, 2),
+                round(market_max_drawdown * 100, 2)
+            ]
+        }
+
+        comparison_df = pd.DataFrame(comparison_data)
+        st.subheader("📊 Portfolio vs Market Comparison")
+        st.table(comparison_df.set_index("Metric"))
 
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
