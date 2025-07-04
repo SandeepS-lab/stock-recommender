@@ -1,9 +1,12 @@
+# PART 1/2
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from datetime import datetime, timedelta
+from pypfopt import EfficientFrontier, risk_models, expected_returns, DiscreteAllocation, objective_functions
 
 # ----------------------------
 # Ticker Map (14 Stocks with 2-Year History)
@@ -119,6 +122,7 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
         selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
 
     return selected.round(2).drop(columns=['Score'])
+
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
@@ -140,10 +144,8 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
         random_returns = np.random.normal(loc=expected_return, scale=volatility, size=n_simulations)
         simulations[:, i] = simulations[:, i - 1] * (1 + random_returns)
     return simulations
+# PART 2/2
 
-# ----------------------------
-# Streamlit UI
-# ----------------------------
 st.title("📈 AI-Based Stock Recommender for Fund Managers")
 
 st.sidebar.header("Client Profile Input")
@@ -161,17 +163,68 @@ if st.button("Generate Recommendation"):
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
 
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
-    st.subheader("📊 Recommended Portfolio")
+    st.subheader("📊 Recommended Portfolio (Pre-Optimization)")
     st.dataframe(recommended_stocks)
 
-    live_data = fetch_live_data(recommended_stocks)
+    # ----------------------------
+    # Portfolio Optimization (PyPortfolioOpt)
+    # ----------------------------
+    st.subheader("🧠 Optimized Portfolio Weights (Max Sharpe Ratio)")
+    tickers = [TICKER_MAP[stock] for stock in recommended_stocks['Stock']]
+
+    start_date = datetime.today() - timedelta(days=730)
+    end_date = datetime.today()
+
+    try:
+        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
+        if isinstance(price_data.columns, pd.MultiIndex):
+            price_data = price_data.droplevel(0, axis=1)
+        price_data.dropna(axis=1, how='any', inplace=True)
+
+        mu = expected_returns.mean_historical_return(price_data)
+        S = risk_models.sample_cov(price_data)
+
+        ef = EfficientFrontier(mu, S)
+        ef.add_objective(objective_functions.L2_reg, gamma=0.1)
+        weights = ef.max_sharpe()
+        cleaned_weights = ef.clean_weights()
+        performance = ef.portfolio_performance(verbose=False)
+
+        optimized_df = pd.DataFrame({
+            'Stock': cleaned_weights.keys(),
+            'Optimized Weight %': [round(w * 100, 2) for w in cleaned_weights.values()]
+        }).query("`Optimized Weight %` > 0")
+
+        optimized_df['Investment Amount (₹)'] = (optimized_df['Optimized Weight %'] / 100) * investment_amount
+        st.dataframe(optimized_df)
+
+        # Update recommended_stocks with optimized weights
+        recommended_stocks = recommended_stocks[recommended_stocks['Stock'].isin(optimized_df['Stock'])]
+        recommended_stocks = recommended_stocks.merge(optimized_df, on='Stock')
+        recommended_stocks['Weight %'] = recommended_stocks['Optimized Weight %']
+        recommended_stocks['Investment Amount (₹)'] = recommended_stocks['Investment Amount (₹)_y']
+        recommended_stocks = recommended_stocks.drop(columns=['Optimized Weight %', 'Investment Amount (₹)_y', 'Investment Amount (₹)_x'])
+
+    except Exception as e:
+        st.error(f"⚠️ Optimization failed: {e}")
+
+    # ----------------------------
+    # Live Stock Data
+    # ----------------------------
     st.subheader("📉 Live Stock Data (via yfinance)")
+    live_data = fetch_live_data(recommended_stocks)
     st.dataframe(live_data)
 
+    # ----------------------------
+    # Earnings Projection
+    # ----------------------------
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
     st.line_chart(earning_df.set_index("Year"))
 
+    # ----------------------------
+    # Monte Carlo Simulation
+    # ----------------------------
     st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
@@ -191,12 +244,12 @@ if st.button("Generate Recommendation"):
     ax4.legend()
     st.pyplot(fig4)
 
+    # ----------------------------
+    # Portfolio Backtest
+    # ----------------------------
     st.subheader("📉 Portfolio Backtest (Last 24 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index if stock in TICKER_MAP]
-
-    start_date = datetime.today() - timedelta(days=730)
-    end_date = datetime.today()
 
     try:
         price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
@@ -205,7 +258,6 @@ if st.button("Generate Recommendation"):
             price_data = price_data.droplevel(0, axis=1)
 
         price_data.dropna(axis=1, how='any', inplace=True)
-
         valid_stocks = [stock for stock in portfolio_weights.index if TICKER_MAP[stock] in price_data.columns]
         tickers = [TICKER_MAP[stock] for stock in valid_stocks]
         portfolio_weights = portfolio_weights[valid_stocks]
@@ -213,7 +265,8 @@ if st.button("Generate Recommendation"):
 
         normalized = price_data / price_data.iloc[0]
         portfolio_returns = (normalized * portfolio_weights.values).sum(axis=1)
-        market_returns = normalized.mean(axis=1)
+        benchmark = yf.download("^NSEI", start=start_date, end=end_date)['Close']
+        benchmark = benchmark / benchmark.iloc[0]
 
         daily_returns = portfolio_returns.pct_change().dropna()
         sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
@@ -225,12 +278,12 @@ if st.button("Generate Recommendation"):
 
         backtest_df = pd.DataFrame({
             "Portfolio": portfolio_returns,
-            "Market Average": market_returns
+            "NIFTY 50": benchmark
         })
 
         st.line_chart(backtest_df)
         st.markdown(f"📊 **Portfolio Return**: {round((portfolio_returns[-1]-1)*100, 2)}%")
-        st.markdown(f"📉 **Market Return**: {round((market_returns[-1]-1)*100, 2)}%")
+        st.markdown(f"📉 **NIFTY 50 Return**: {round((benchmark[-1]-1)*100, 2)}%")
         st.markdown(f"✨ **Sharpe Ratio**: {sharpe_ratio:.2f}")
         st.markdown(f"🔁 **Annualized Volatility**: {volatility:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_drawdown:.2%}")
@@ -238,6 +291,9 @@ if st.button("Generate Recommendation"):
     except Exception as e:
         st.error(f"⚠️ Backtest failed: {e}")
 
+# ----------------------------
+# Show Historical Data
+# ----------------------------
 if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
     st.subheader("📜 Historical Stock Data")
     start_date = datetime.today() - timedelta(days=90)
