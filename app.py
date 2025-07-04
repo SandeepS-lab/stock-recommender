@@ -86,6 +86,39 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
     return selected.round(2).drop(columns=['Score'])
 
 # ----------------------------
+# Live Stock Info
+# ----------------------------
+def fetch_live_data(ticker_map, selected_stocks):
+    live_data = []
+    for stock in selected_stocks:
+        try:
+            ticker = ticker_map.get(stock)
+            yf_ticker = yf.Ticker(ticker)
+            info = yf_ticker.fast_info
+            pe = yf_ticker.info.get("trailingPE", np.nan)
+            dividend_yield = yf_ticker.info.get("dividendYield", np.nan)
+
+            live_data.append({
+                "Stock": stock,
+                "Live Price (₹)": round(info.get("lastPrice", np.nan), 2),
+                "52W High (₹)": round(info.get("yearHigh", np.nan), 2),
+                "52W Low (₹)": round(info.get("yearLow", np.nan), 2),
+                "PE Ratio": round(pe, 2) if pe else "N/A",
+                "Dividend Yield (%)": round(dividend_yield * 100, 2) if dividend_yield else "N/A"
+            })
+        except Exception as e:
+            live_data.append({
+                "Stock": stock,
+                "Live Price (₹)": "Error",
+                "52W High (₹)": "Error",
+                "52W Low (₹)": "Error",
+                "PE Ratio": "Error",
+                "Dividend Yield (%)": "Error"
+            })
+    return pd.DataFrame(live_data)
+
+# [Code continues in next message → Part 2/2]
+# ----------------------------
 # Earnings Simulation
 # ----------------------------
 def simulate_earnings(amount, years):
@@ -129,6 +162,11 @@ if st.button("Generate Recommendation"):
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
     st.subheader("📊 Recommended Portfolio")
     st.dataframe(recommended_stocks)
+
+    # --- Live Data Section ---
+    st.subheader("📡 Live Stock Data for Recommended Stocks")
+    live_df = fetch_live_data(TICKER_MAP, recommended_stocks["Stock"])
+    st.dataframe(live_df)
 
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
