@@ -78,7 +78,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Basic Recommender
+# Stock Recommendation
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
@@ -150,12 +150,13 @@ qualification = st.sidebar.selectbox("Highest Qualification", ["Undergraduate", 
 duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
 investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
 investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
+diversify = st.sidebar.checkbox("Diversify Across Risk Categories", value=False)
 
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
 
-    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=True)
+    recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
     st.subheader("📊 Recommended Portfolio")
     st.dataframe(recommended_stocks)
 
