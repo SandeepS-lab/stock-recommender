@@ -110,7 +110,8 @@ def get_stock_list(risk_profile, investment_amount, stock_metrics_df, diversify=
         selected['Investment Amount (₹)'] = (selected['Weight %'] / 100) * investment_amount
 
     return selected.round(2).drop(columns=['Score'])
-# 📈 Earnings Projection
+
+# 🧮 Earnings Projection
 def simulate_earnings(amount, years):
     rates = {'Bear (-5%)': -0.05, 'Base (8%)': 0.08, 'Bull (15%)': 0.15}
     df = pd.DataFrame({'Year': list(range(years + 1))})
@@ -127,23 +128,23 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
         random_returns = np.random.normal(expected_return, volatility, n_simulations)
         results[:, i] = results[:, i - 1] * (1 + random_returns)
     return results
-
-# ✅ Generate Recommendation and Analysis
+# ✅ Main Action Button
 if st.button("🚀 Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
 
     stock_metrics_df = compute_stock_metrics()
     recommended_stocks = get_stock_list(risk_profile, investment_amount, stock_metrics_df, diversify)
+
     st.subheader("📊 Recommended Portfolio")
     st.dataframe(recommended_stocks)
 
-    # ⚙️ Portfolio Optimization
     st.subheader("⚙️ Portfolio Optimization")
     opt_method = st.selectbox("Optimization Objective", ["Max Sharpe Ratio", "Max Return", "Min Volatility"])
+    tickers = recommended_stocks['Ticker'].tolist()
     start_date = datetime.today() - timedelta(days=730)
     end_date = datetime.today()
-    tickers = recommended_stocks['Ticker'].tolist()
+
     price_data = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
     price_data.dropna(axis=1, inplace=True)
 
@@ -162,15 +163,13 @@ if st.button("🚀 Generate Recommendation"):
 
         cleaned_weights = ef.clean_weights()
         opt_df = pd.DataFrame({
-            'Stock': [name for name, ticker in TICKER_MAP.items() if ticker in cleaned_weights],
             'Ticker': list(cleaned_weights.keys()),
             'Weight %': [round(w * 100, 2) for w in cleaned_weights.values()]
         }).query("`Weight %` > 0")
-
         opt_df['Investment Amount (₹)'] = (opt_df['Weight %'] / 100) * investment_amount
-        st.dataframe(opt_df)
+        opt_df['Stock'] = opt_df['Ticker'].map({v: k for k, v in TICKER_MAP.items()})
+        st.dataframe(opt_df[['Stock', 'Ticker', 'Weight %', 'Investment Amount (₹)']])
 
-        # Merge updated weights back
         recommended_stocks = recommended_stocks[recommended_stocks['Ticker'].isin(opt_df['Ticker'])]
         recommended_stocks = recommended_stocks.drop(columns=['Weight %', 'Investment Amount (₹)'])
         recommended_stocks = recommended_stocks.merge(opt_df[['Ticker', 'Weight %', 'Investment Amount (₹)']], on='Ticker')
@@ -180,7 +179,7 @@ if st.button("🚀 Generate Recommendation"):
     earnings = simulate_earnings(investment_amount, duration)
     st.line_chart(earnings.set_index("Year"))
 
-    # 🧪 Monte Carlo Simulation
+    # 🧪 Monte Carlo
     st.subheader("🧪 Monte Carlo Simulation (500 Runs)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_vol = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
@@ -204,7 +203,6 @@ if st.button("🚀 Generate Recommendation"):
     st.subheader("📉 Portfolio Backtest (Last 24 Months)")
     portfolio_weights = recommended_stocks.set_index("Ticker")["Weight %"] / 100
     tickers = portfolio_weights.index.tolist()
-
     price_bt = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
     price_bt.dropna(axis=1, inplace=True)
     benchmark = yf.download("NIFTYBEES.NS", start=start_date, end=end_date)['Adj Close']
@@ -230,6 +228,34 @@ if st.button("🚀 Generate Recommendation"):
         st.markdown(f"📈 **Sharpe Ratio**: {sharpe:.2f}")
         st.markdown(f"📉 **Volatility**: {vol:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_dd:.2%}")
+
+        # 📋 Portfolio vs Market Comparison
+        market_daily = bench.pct_change().dropna()
+        market_sharpe = (market_daily.mean() / market_daily.std()) * np.sqrt(252)
+        market_vol = market_daily.std() * np.sqrt(252)
+        market_cum = (1 + market_daily).cumprod()
+        market_dd = (market_cum - market_cum.cummax()) / market_cum.cummax()
+        market_max_dd = market_dd.min()
+        market_return = (bench[-1] - 1) * 100
+
+        comparison_df = pd.DataFrame({
+            "Metric": ["Cumulative Return (%)", "Annualized Volatility (%)", "Sharpe Ratio", "Max Drawdown (%)"],
+            "Portfolio": [
+                round((portfolio[-1] - 1) * 100, 2),
+                round(vol * 100, 2),
+                round(sharpe, 2),
+                round(max_dd * 100, 2)
+            ],
+            "Market (NIFTYBEES)": [
+                round(market_return, 2),
+                round(market_vol * 100, 2),
+                round(market_sharpe, 2),
+                round(market_max_dd * 100, 2)
+            ]
+        })
+        st.subheader("📋 Portfolio vs Market Comparison")
+        st.dataframe(comparison_df)
+
     else:
         st.error("🚫 No valid stock data available for backtest.")
 
