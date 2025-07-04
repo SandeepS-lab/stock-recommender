@@ -50,7 +50,7 @@ def get_risk_profile(age, income, dependents, qualification, duration, investmen
         return "Aggressive"
 
 # ----------------------------
-# Static Stock List
+# Static Stock Recommendation Logic
 # ----------------------------
 def get_stock_list(risk_profile, investment_amount, diversify=False):
     data = {
@@ -89,40 +89,33 @@ def get_stock_list(risk_profile, investment_amount, diversify=False):
     return selected.round(2).drop(columns=['Score'])
 
 # ----------------------------
-# Live Stock Data
+# Forward Fill Clean Download
 # ----------------------------
-def fetch_live_data(stock_df):
-    additional_data = []
-    for stock in stock_df['Stock']:
-        ticker_symbol = TICKER_MAP.get(stock)
-        if not ticker_symbol:
-            continue
-        try:
-            ticker = yf.Ticker(ticker_symbol)
-            info = ticker.fast_info or {}
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': round(info.get('last_price', np.nan), 2),
-                '52W High (₹)': round(info.get('year_high', np.nan), 2),
-                '52W Low (₹)': round(info.get('year_low', np.nan), 2),
-                'Dividend Yield (%)': np.nan,
-                'P/E Ratio': np.nan,
-                'Market Cap (₹ Cr)': np.nan,
-                'Beta (Live)': np.nan
-            })
-        except Exception:
-            additional_data.append({
-                'Stock': stock,
-                'Live Price (₹)': np.nan,
-                '52W High (₹)': np.nan,
-                '52W Low (₹)': np.nan,
-                'Dividend Yield (%)': np.nan,
-                'P/E Ratio': np.nan,
-                'Market Cap (₹ Cr)': np.nan,
-                'Beta (Live)': np.nan
-            })
-    return pd.DataFrame(additional_data)
+def safe_yf_download(tickers, start, end):
+    try:
+        data = yf.download(tickers, start=start, end=end)['Close']
+        if isinstance(data.columns, pd.MultiIndex):
+            data = data.droplevel(0, axis=1)
+        data = data.ffill().bfill().dropna(axis=1, how='any')
+        return data
+    except Exception as e:
+        st.error(f"❌ yfinance error: {e}")
+        return pd.DataFrame()
 
+# ----------------------------
+# UI Sidebar
+# ----------------------------
+st.title("📈 AI-Based Stock Recommender for Fund Managers")
+
+st.sidebar.header("Client Profile Input")
+age = st.sidebar.number_input("Age", 18, 100, 30)
+income = st.sidebar.number_input("Monthly Income (₹)", 10000, 200000, 50000, step=5000)
+dependents = st.sidebar.number_input("Number of Dependents", 0, 10, 2)
+qualification = st.sidebar.selectbox("Highest Qualification", ["Undergraduate", "Postgraduate", "Professional"])
+duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
+investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
+investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
+diversify = st.sidebar.checkbox("Diversify Across Risk Categories", value=False)
 # ----------------------------
 # Earnings Simulation
 # ----------------------------
@@ -146,44 +139,27 @@ def monte_carlo_simulation(initial_investment, expected_return, volatility, year
     return simulations
 
 # ----------------------------
-# Streamlit Inputs
+# Recommendation Generation
 # ----------------------------
-st.title("📈 AI-Based Stock Recommender for Fund Managers")
-
-st.sidebar.header("Client Profile Input")
-age = st.sidebar.number_input("Age", 18, 100, 30)
-income = st.sidebar.number_input("Monthly Income (₹)", 10000, 200000, 50000, step=5000)
-dependents = st.sidebar.number_input("Number of Dependents", 0, 10, 2)
-qualification = st.sidebar.selectbox("Highest Qualification", ["Undergraduate", "Postgraduate", "Professional"])
-duration = st.sidebar.number_input("Investment Duration (Years)", 1, 30, 5)
-investment_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
-investment_amount = st.sidebar.number_input("Investment Amount (₹)", 10000, 10000000, 100000)
-diversify = st.sidebar.checkbox("Diversify Across Risk Categories", value=False)
 if st.button("Generate Recommendation"):
     risk_profile = get_risk_profile(age, income, dependents, qualification, duration, investment_type)
     st.success(f"🧠 Risk Profile: **{risk_profile}**")
 
     recommended_stocks = get_stock_list(risk_profile, investment_amount, diversify=diversify)
-    st.subheader("📊 Recommended Portfolio (Pre-Optimization)")
+    st.subheader("📊 Recommended Portfolio")
     st.dataframe(recommended_stocks)
 
     st.subheader("🧠 Portfolio Optimization")
     opt_method = st.selectbox("⚙️ Optimization Objective", ["Max Sharpe Ratio", "Max Return", "Min Volatility"])
-
     tickers = [TICKER_MAP[stock] for stock in recommended_stocks['Stock']]
+
     start_date = datetime.today() - timedelta(days=730)
     end_date = datetime.today()
+    price_data = safe_yf_download(tickers, start_date, end_date)
 
-    try:
-        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
-
-        if isinstance(price_data.columns, pd.MultiIndex):
-            price_data = price_data.droplevel(0, axis=1)
-
-        price_data = price_data.fillna(method='ffill').dropna(axis=1)
-        retained_stocks = list(price_data.columns)
-        st.info(f"✅ Optimized using {len(retained_stocks)} stocks with clean 2-year history")
-
+    if price_data.empty:
+        st.error("⚠️ Optimization aborted: No price data available for selected stocks.")
+    else:
         mu = expected_returns.mean_historical_return(price_data)
         S = risk_models.sample_cov(price_data)
         ef = EfficientFrontier(mu, S)
@@ -205,6 +181,7 @@ if st.button("Generate Recommendation"):
         optimized_df['Investment Amount (₹)'] = (optimized_df['Optimized Weight %'] / 100) * investment_amount
         st.dataframe(optimized_df)
 
+        # Apply optimized weights
         recommended_stocks = recommended_stocks[recommended_stocks['Stock'].isin(optimized_df['Stock'])]
         recommended_stocks = recommended_stocks.merge(optimized_df, on='Stock')
         recommended_stocks['Weight %'] = recommended_stocks['Optimized Weight %']
@@ -213,56 +190,42 @@ if st.button("Generate Recommendation"):
             'Optimized Weight %', 'Investment Amount (₹)_x', 'Investment Amount (₹)_y'
         ])
 
-    except Exception as e:
-        st.error(f"⚠️ Optimization failed: {e}")
-
-    # Live Data
-    st.subheader("📉 Live Stock Data")
-    live_data = fetch_live_data(recommended_stocks)
-    st.dataframe(live_data)
-
     # Earnings Simulation
     st.subheader("📈 Projected Earnings Scenarios")
     earning_df = simulate_earnings(investment_amount, duration)
     st.line_chart(earning_df.set_index("Year"))
 
-    # Monte Carlo
+    # Monte Carlo Simulation
     st.subheader("🧪 Monte Carlo Simulation (500 Scenarios)")
     avg_return = (recommended_stocks['Sharpe Ratio'] * recommended_stocks['Weight %'] / 100).sum()
     avg_volatility = (recommended_stocks['Volatility'] * recommended_stocks['Weight %'] / 100).sum()
     mc_results = monte_carlo_simulation(investment_amount, avg_return, avg_volatility, duration)
 
-    fig4, ax4 = plt.subplots(figsize=(10, 5))
+    fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
     for i in range(min(100, mc_results.shape[0])):
-        ax4.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
+        ax_mc.plot(range(duration + 1), mc_results[i], color='grey', alpha=0.1)
     median = np.percentile(mc_results, 50, axis=0)
     p10 = np.percentile(mc_results, 10, axis=0)
     p90 = np.percentile(mc_results, 90, axis=0)
-    ax4.plot(median, color='blue', label='Median Projection')
-    ax4.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
-    ax4.set_title("Monte Carlo Simulation of Portfolio Value")
-    ax4.set_xlabel("Year")
-    ax4.set_ylabel("Portfolio Value (₹)")
-    ax4.legend()
-    st.pyplot(fig4)
+    ax_mc.plot(median, color='blue', label='Median Projection')
+    ax_mc.fill_between(range(duration + 1), p10, p90, color='blue', alpha=0.2, label='10%-90% Confidence Interval')
+    ax_mc.set_title("Monte Carlo Simulation of Portfolio Value")
+    ax_mc.set_xlabel("Year")
+    ax_mc.set_ylabel("Portfolio Value (₹)")
+    ax_mc.legend()
+    st.pyplot(fig_mc)
 
     # Backtest
     st.subheader("📉 Portfolio Backtest (Last 24 Months)")
     portfolio_weights = recommended_stocks.set_index("Stock")["Weight %"] / 100
     tickers = [TICKER_MAP[stock] for stock in portfolio_weights.index]
 
-    try:
-        price_data = yf.download(tickers, start=start_date, end=end_date)['Close']
-        if isinstance(price_data.columns, pd.MultiIndex):
-            price_data = price_data.droplevel(0, axis=1)
+    price_data_bt = safe_yf_download(tickers, start_date, end_date)
 
-        price_data = price_data.fillna(method='ffill').dropna(axis=1)
-        valid_stocks = [stock for stock in portfolio_weights.index if TICKER_MAP[stock] in price_data.columns]
-        tickers = [TICKER_MAP[stock] for stock in valid_stocks]
-        portfolio_weights = portfolio_weights[valid_stocks]
-        price_data = price_data[tickers]
-
-        normalized = price_data / price_data.iloc[0]
+    if price_data_bt.empty or portfolio_weights.empty:
+        st.error("🚫 No valid stock data available for backtest.")
+    else:
+        normalized = price_data_bt / price_data_bt.iloc[0]
         portfolio_returns = (normalized * portfolio_weights.values).sum(axis=1)
 
         benchmark_nifty = yf.download("^NSEI", start=start_date, end=end_date)['Close']
@@ -291,19 +254,15 @@ if st.button("Generate Recommendation"):
         st.markdown(f"🔁 **Annualized Volatility**: {volatility:.2%}")
         st.markdown(f"💥 **Max Drawdown**: {max_drawdown:.2%}")
 
-    except Exception as e:
-        st.error(f"⚠️ Backtest failed: {e}")
-
-# Show 3-Month Historical Data
+# Historical Stock Data
 if st.checkbox("📜 Show Historical Stock Data (Last 3 Months)"):
     st.subheader("📜 Historical Stock Data")
-    start_date = datetime.today() - timedelta(days=90)
-    end_date = datetime.today()
-
+    start_hist = datetime.today() - timedelta(days=90)
+    end_hist = datetime.today()
     for stock_name, ticker in TICKER_MAP.items():
         st.markdown(f"### {stock_name} ({ticker})")
         try:
-            hist_data = yf.download(ticker, start=start_date, end=end_date)
+            hist_data = yf.download(ticker, start=start_hist, end=end_hist)
             if not hist_data.empty:
                 st.dataframe(hist_data.tail(5))
             else:
